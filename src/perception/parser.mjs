@@ -31,7 +31,7 @@ export async function parseUserMessage(userMessage) {
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({
-                model: "llama-3.1-8b-instant", // Model terbaru dari Groq
+                model: "qwen/qwen3.6-27b", // Model Qwen 3.6 di Groq
                 messages: [
                     { role: "system", content: PERCEPTION_SYSTEM_PROMPT },
                     { role: "user", content: userMessage }

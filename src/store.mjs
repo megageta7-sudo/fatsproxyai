@@ -31,7 +31,7 @@ const defaultConfig = {
   updatedAt: null,
   providerOrder: ["groq", "gemini", "mistral", "nvidia"],
   groq: {
-    model: process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct",
+    model: process.env.GROQ_MODEL || "qwen/qwen3.6-27b",
     keys: parseEnvKeys("GROQ_KEYS"),
     cursor: 0
   },

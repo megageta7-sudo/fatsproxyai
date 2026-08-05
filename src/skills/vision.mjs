@@ -24,14 +24,14 @@ export async function analyzeImage(imageBase64) {
     return data.choices?.[0]?.message?.content || "Gambar tidak diketahui.";
 }
 
-// --- GROQ VISION AI (LLaMA 3.2) ---
+// --- GROQ VISION AI (Qwen 3.6) ---
 export async function analyzeImageWithGroq(imageBase64) {
     const apiKey = process.env.GROQ_API_KEY || "";
     if (!apiKey) return "Deskripsi tidak tersedia (GROQ_API_KEY tidak ada).";
 
     const url = "https://api.groq.com/openai/v1/chat/completions";
     const body = {
-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        model: "qwen/qwen3.6-27b",
         messages: [
             {
                 role: "user",

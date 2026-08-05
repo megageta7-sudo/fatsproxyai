@@ -40,7 +40,7 @@ async function handler(event) {
 
         if (provider === "groq") {
           caller = callGroq;
-          defaultModel = "meta-llama/llama-4-scout-17b-16e-instruct";
+          defaultModel = "qwen/qwen3.6-27b";
         } else if (provider === "gemini") {
           caller = callGemini;
           defaultModel = "gemini-2.5-flash";

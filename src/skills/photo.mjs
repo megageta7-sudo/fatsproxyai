@@ -36,7 +36,7 @@ export async function executePhotoTool(args, context, services) {
         const success = await sendTelegramPhotoBuffer(chatId, imageBuffer);
 
         if (success) {
-            // Karena Llama 4 Scout di Groq error saat menerima Base64, kita kembali ke Qwen Vision
+            // Gunakan Qwen Vision untuk analisis gambar
             const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
             const description = await analyzeImage(base64Image);
             

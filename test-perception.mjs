@@ -8,7 +8,7 @@ async function run() {
         "Aku baru aja gagal interview di Tokopedia... sedih banget rasanya..."
     ];
 
-    console.log("=== TESTING GROQ PERCEPTION LAYER (LLaMA-3 8B) ===\n");
+    console.log("=== TESTING GROQ PERCEPTION LAYER (Qwen 3.6 27B) ===\n");
     
     for (const msg of testMessages) {
         console.log(`User Input: "${msg}"`);
