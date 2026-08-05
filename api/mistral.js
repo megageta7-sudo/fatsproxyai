@@ -3,7 +3,7 @@ import { validateExtensionToken } from "../src/auth.mjs";
 
 /**
  * Multi-function Mistral endpoint:
- *
+ *  hahaha
  * MODE 1 (Legacy - Smart Keywords):
  *   Body: { apiKey, model, prompt, image }
  *   → Generates microstock metadata using Mistral
