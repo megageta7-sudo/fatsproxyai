@@ -92,6 +92,14 @@
     {
       "source": "/api/ext/login",
       "destination": "/api/ext-login.js"
+    },
+    {
+      "source": "/flow-success",
+      "destination": "/public/flow-success.html"
+    },
+    {
+      "source": "/flow-thankyou",
+      "destination": "/public/flow-success.html"
     }
   ]
 }
