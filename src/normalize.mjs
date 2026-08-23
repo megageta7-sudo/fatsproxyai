@@ -124,10 +124,21 @@ export function normalizeMetadata(providerText, settings = {}) {
       const keywords = normalizeKeywords(rawKw, settings);
       const category = normalizeCategory(rawCat);
       const fileTypeFlag = ftMatch ? ftMatch[1].toLowerCase().includes("illustration") : false;
+      const fileTypeStr = fileTypeFlag ? "Illustration" : "Photo";
+      
+      let formattedResult = "";
+      if (rawTitle && keywords.length > 0) {
+        formattedResult = `TITLE: ${rawTitle}\nKEYWORDS: ${keywords.join(", ")}\nCATEGORY: ${category}\nFILE_TYPE: ${fileTypeStr}`;
+      } else if (rawTitle) {
+        formattedResult = rawTitle;
+      } else {
+        formattedResult = keywords.join(", ");
+      }
+
       const legacyResult = `${rawTitle}&&${keywords.join(", ")}&&${category}&&false&&${fileTypeFlag}`;
 
       return {
-        result: legacyResult,
+        result: formattedResult,
         title: rawTitle.slice(0, 200),
         keywords,
         category,
@@ -139,10 +150,18 @@ export function normalizeMetadata(providerText, settings = {}) {
 
     const fallbackTitle = cleanMarkdown(text.slice(0, 200));
     const fallbackKeywords = normalizeKeywords(text.split(","), settings);
+    let formattedResult = "";
+    if (fallbackTitle && fallbackKeywords.length > 0) {
+      formattedResult = `TITLE: ${fallbackTitle}\nKEYWORDS: ${fallbackKeywords.join(", ")}\nCATEGORY: business\nFILE_TYPE: Photo`;
+    } else if (fallbackTitle) {
+      formattedResult = fallbackTitle;
+    } else {
+      formattedResult = fallbackKeywords.join(", ");
+    }
     const legacyResult = `${fallbackTitle}&&${fallbackKeywords.join(", ")}&&business&&false&&false`;
 
     return {
-      result: legacyResult,
+      result: formattedResult,
       title: fallbackTitle,
       keywords: fallbackKeywords,
       category: "business",
@@ -170,10 +189,20 @@ export function normalizeMetadata(providerText, settings = {}) {
     throw new Error("Generated content is empty");
   }
 
+  const fileTypeStr = fileTypeFlag ? "Illustration" : "Photo";
+  let formattedResult = "";
+  if (title && keywords.length > 0) {
+    formattedResult = `TITLE: ${title}\nKEYWORDS: ${keywords.join(", ")}\nCATEGORY: ${category}\nFILE_TYPE: ${fileTypeStr}`;
+  } else if (title) {
+    formattedResult = title;
+  } else {
+    formattedResult = keywords.join(", ");
+  }
+
   const legacyResult = `${title}&&${keywords.join(", ")}&&${category}&&${peopleOrProperty}&&${fileTypeFlag}`;
 
   return {
-    result: legacyResult, // For backward compatibility with extension background.js
+    result: formattedResult, // Exact format expected by Smart keywords ext
     title,
     keywords,
     category,
