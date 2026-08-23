@@ -1,4 +1,4 @@
-import { json, optionsResponse, readJson, vercelHandler } from "../src/http.mjs";
+﻿import { json, optionsResponse, readJson, vercelHandler } from "../src/http.mjs";
 import { extendSubscription } from "../src/auth.mjs";
 import { recordLog } from "../src/store.mjs";
 import { db } from "../src/firebase.mjs";
@@ -12,7 +12,6 @@ async function handler(event) {
   const body = readJson(event);
 
   // === 1. START TRIAL LOGIC (TeePublic / Smart Keywords) ===
-  // Use body.action to route since Vercel rewrites may alter event.path
   if (body.action === "start-trial") {
     try {
       const { email, deviceHash, appSource } = body;
@@ -56,26 +55,53 @@ async function handler(event) {
       if (!db) return json(500, { ok: false, message: "Database not initialized" });
       
       const configId = process.env.CONFIG_ID || "";
-      const col = configId ? `flowUsers-${configId}` : "flowUsers";
+      const cols = ["flowUsers"];
+      if (configId && configId !== "flowUsers") cols.push(`flowUsers-${configId}`);
 
       let isLifetime = false;
       let userData = null;
 
-      // Prioritas 1: Cek dokumen berdasarkan Username (flowUsers/Condor-9DB1)
-      if (username) {
-        const uDoc = await db.collection(col).doc(username.trim()).get();
-        if (uDoc.exists && uDoc.data()?.isLifetime === true) {
-          isLifetime = true;
-          userData = uDoc.data();
-        }
-      }
+      for (const col of cols) {
+        if (isLifetime) break;
 
-      // Prioritas 2: Cek dokumen berdasarkan Email jika username dicari via email
-      if (!isLifetime && email) {
-        const eDoc = await db.collection(col).doc(email.trim()).get();
-        if (eDoc.exists && eDoc.data()?.isLifetime === true) {
-          isLifetime = true;
-          userData = eDoc.data();
+        // 1. Cek langsung doc(username)
+        if (username) {
+          const uDoc = await db.collection(col).doc(username.trim()).get();
+          if (uDoc.exists && uDoc.data()?.isLifetime === true) {
+            isLifetime = true;
+            userData = uDoc.data();
+            break;
+          }
+        }
+
+        // 2. Cek langsung doc(email)
+        if (email) {
+          const eDoc = await db.collection(col).doc(email.trim()).get();
+          if (eDoc.exists && eDoc.data()?.isLifetime === true) {
+            isLifetime = true;
+            userData = eDoc.data();
+            break;
+          }
+        }
+
+        // 3. Cek query field username
+        if (username) {
+          const qSnap = await db.collection(col).where("username", "==", username.trim()).limit(1).get();
+          if (!qSnap.empty && qSnap.docs[0].data()?.isLifetime === true) {
+            isLifetime = true;
+            userData = qSnap.docs[0].data();
+            break;
+          }
+        }
+
+        // 4. Cek query field email
+        if (email) {
+          const qSnap = await db.collection(col).where("email", "==", email.trim()).limit(1).get();
+          if (!qSnap.empty && qSnap.docs[0].data()?.isLifetime === true) {
+            isLifetime = true;
+            userData = qSnap.docs[0].data();
+            break;
+          }
         }
       }
 
@@ -89,6 +115,64 @@ async function handler(event) {
     }
   }
 
+  // === 1.6 CLAIM FLOW DOWNLOADER LICENSE (Tautkan Email Pembelian ke Username Ekstensi) ===
+  if (body.action === "claim-flow-license") {
+    try {
+      const { email, username } = body;
+      if (!email || !username) return json(400, { ok: false, message: "Email dan Username diperlukan" });
+      if (!db) return json(500, { ok: false, message: "Database not initialized" });
+
+      const configId = process.env.CONFIG_ID || "";
+      const cols = ["flowUsers"];
+      if (configId && configId !== "flowUsers") cols.push(`flowUsers-${configId}`);
+
+      let foundData = null;
+
+      for (const col of cols) {
+        // Cek doc(email)
+        const eDoc = await db.collection(col).doc(email.trim()).get();
+        if (eDoc.exists && eDoc.data()?.isLifetime === true) {
+          foundData = eDoc.data();
+          break;
+        }
+        // Cek field email
+        const qSnap = await db.collection(col).where("email", "==", email.trim()).limit(1).get();
+        if (!qSnap.empty && qSnap.docs[0].data()?.isLifetime === true) {
+          foundData = qSnap.docs[0].data();
+          break;
+        }
+      }
+
+      if (!foundData) {
+        return json(404, { 
+          ok: false, 
+          message: "Data pembelian untuk email ini belum ditemukan. Pastikan email persis sama dengan saat checkout di Lynk.id." 
+        });
+      }
+
+      const updatedData = {
+        ...foundData,
+        isLifetime: true,
+        username: username.trim(),
+        claimedAt: new Date().toISOString()
+      };
+
+      for (const col of cols) {
+        await db.collection(col).doc(username.trim()).set(updatedData, { merge: true });
+        await db.collection(col).doc(email.trim()).set(updatedData, { merge: true });
+      }
+
+      return json(200, {
+        ok: true,
+        isLifetime: true,
+        message: "Lisensi Lifetime Pro berhasil ditautkan ke Username Anda!",
+        data: updatedData
+      });
+    } catch (e) {
+      return json(500, { ok: false, message: e.message });
+    }
+  }
+
   // === 2. WEBHOOK LYNKID LOGIC ===
   try {
     if (body.event === "ping" || body.event === "test") {
@@ -96,7 +180,7 @@ async function handler(event) {
     }
 
     const customerName = (body.data?.message_data?.customer?.name || "").trim();
-    const email = body.data?.message_data?.customer?.email || body.user_email || body.email;
+    const email = (body.data?.message_data?.customer?.email || body.user_email || body.email || "").trim();
     const status = body.data?.message_action || body.status || body.transaction_status;
     const eventType = body.event;
     
@@ -141,36 +225,46 @@ async function handler(event) {
 
     let result = null;
     const configId = process.env.CONFIG_ID || "";
-    const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
 
     if (isFlowDownloader) {
         const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
         
-        // 1 DOKUMEN TUNGGAL PER TRANSAKSI:
-        // Jika ada Username di kolom nama -> ID Dokumen = Username (Langsung Aktif Otomatis)
-        // Jika pembeli lupa/salah isi nama -> ID Dokumen = Email Pembeli (Tercatat untuk dicek Admin)
+        // JIKA USERNAME KOSONG -> GUNAKAN EMAIL SEBAGAI GANTI NAMA/USERNAME
         const hasUsername = Boolean(customerName && customerName.length >= 3);
-        const docId = hasUsername ? customerName : email;
+        const finalUsername = hasUsername ? customerName : (email || "Unknown-User");
 
-        if (!docId) {
+        if (!finalUsername && !email) {
             console.warn("[Flow Downloader Webhook] No customer name or email found.");
             return json(400, { ok: false, message: "No customer name or email found" });
         }
 
         const flowUserData = {
             isLifetime: true,
-            username: hasUsername ? customerName : "",
+            username: finalUsername,
             customerName: customerName || "",
             email: email || "",
             subscriptionExpiry: expiryDate,
             activatedAt: new Date().toISOString(),
             productUuid: flowDownloaderUuid,
-            autoVerified: hasUsername,
-            needsManualClaim: !hasUsername
+            autoVerified: true
         };
 
         if (db) {
-            await db.collection(usersCollection).doc(docId).set(flowUserData, { merge: true });
+            const collectionsToSave = ["flowUsers"];
+            if (configId && configId !== "flowUsers") {
+                collectionsToSave.push(`flowUsers-${configId}`);
+            }
+
+            for (const colName of collectionsToSave) {
+                // 1. Simpan dokumen dengan ID finalUsername
+                if (finalUsername) {
+                    await db.collection(colName).doc(finalUsername).set(flowUserData, { merge: true });
+                }
+                // 2. Simpan juga dokumen dengan ID email jika berbeda
+                if (email && email !== finalUsername) {
+                    await db.collection(colName).doc(email).set(flowUserData, { merge: true });
+                }
+            }
         }
         result = flowUserData;
         await recordLog({ 
@@ -178,11 +272,10 @@ async function handler(event) {
             path: "/api/webhook-lynkid", 
             status: 200, 
             host: "Lynk.id", 
-            message: hasUsername 
-                ? `Lifetime auto-activated for username: ${customerName}` 
-                : `Payment recorded for email: ${email} (Manual claim required)` 
+            message: `Lifetime Flow activated for: ${finalUsername} (Email: ${email})` 
         });
     } else {
+        const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
         if (!email && eventType === "payment.received") return json(400, { ok: false, message: "No email found" });
         if (!email) return json(200, { ok: true, message: "Event ignored" });
 
