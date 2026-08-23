@@ -250,3 +250,57 @@ export async function callNvidia({ key, model, image, prompt, system, temperatur
     usage: payload?.usage || null
   };
 }
+
+export async function callXKiro({ key, model, image, prompt, system, temperature, history }) {
+  const userMessageContent = [];
+  if (prompt) {
+    userMessageContent.push({ type: "text", text: prompt });
+  }
+  if (image) {
+    userMessageContent.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${image.mime};base64,${image.base64}`
+      }
+    });
+  }
+
+  const response = await fetchWithTimeout("https://api.xkiro.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${key}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model: model || "google/gemini-2.5-flash",
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        ...(history || []).map(msg => ({ 
+          role: msg.role === "assistant" ? "assistant" : "user", 
+          content: msg.text 
+        })),
+        {
+          role: "user",
+          content: userMessageContent
+        }
+      ],
+      temperature: temperature ?? 0.2
+    })
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const rawMessage = payload?.error?.message || `Status ${response.status}`;
+    console.error(`[xKiro] Error: ${rawMessage}`);
+    const error = new Error(`xKiro provider error: ${response.status} - ${rawMessage}`);
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  const text = payload?.choices?.[0]?.message?.content || "";
+  return {
+    result: text.trim(),
+    usage: payload?.usage || null
+  };
+}
+

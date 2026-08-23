@@ -1,5 +1,5 @@
 import { updateProviderCursor, trackUsage } from "./store.mjs";
-import { callGemini, callGroq, callMistral, callNvidia } from "./providers.mjs";
+import { callGemini, callGroq, callMistral, callNvidia, callXKiro } from "./providers.mjs";
 import redis, { KEYS } from "./redis.mjs";
 import { sha256 } from "./crypto.mjs";
 
@@ -7,7 +7,8 @@ const callers = {
   groq: callGroq,
   gemini: callGemini,
   mistral: callMistral,
-  nvidia: callNvidia
+  nvidia: callNvidia,
+  xkiro: callXKiro
 };
 
 const MAX_CONCURRENT_PER_KEY = Number(process.env.MAX_CONCURRENT_PER_KEY || 2);

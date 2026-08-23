@@ -29,7 +29,7 @@ function parseEnvKeys(key) {
 const defaultConfig = {
   version: 2,
   updatedAt: null,
-  providerOrder: ["groq", "gemini", "mistral", "nvidia"],
+  providerOrder: ["groq", "gemini", "mistral", "nvidia", "xkiro"],
   groq: {
     model: process.env.GROQ_MODEL || "qwen/qwen3.6-27b",
     keys: parseEnvKeys("GROQ_KEYS"),
@@ -48,6 +48,11 @@ const defaultConfig = {
   nvidia: {
     model: process.env.NVIDIA_MODEL || "mistralai/mistral-large-3-675b-instruct-2512",
     keys: parseEnvKeys("NVIDIA_KEYS"),
+    cursor: 0
+  },
+  xkiro: {
+    model: process.env.XKIRO_MODEL || "google/gemini-2.5-flash",
+    keys: parseEnvKeys("XKIRO_KEYS"),
     cursor: 0
   },
   extensionKeys: parseEnvKeys("EXTENSION_KEYS").map(k => ({
@@ -138,12 +143,17 @@ export async function loadConfig(force = false) {
       ...(config?.nvidia || {}),
       keys: (config?.nvidia?.keys?.length ? config.nvidia.keys : defaultConfig.nvidia.keys)
     },
+    xkiro: {
+      ...defaultConfig.xkiro,
+      ...(config?.xkiro || {}),
+      keys: (config?.xkiro?.keys?.length ? config.xkiro.keys : defaultConfig.xkiro.keys)
+    },
     extensionKeys: (config?.extensionKeys?.length ? config.extensionKeys : defaultConfig.extensionKeys)
   };
 
   // Reconcile providerOrder: Ensure new system providers are added to the list if missing
   const currentOrder = Array.isArray(merged.providerOrder) ? merged.providerOrder : defaultConfig.providerOrder;
-  const systemProviders = ["groq", "gemini", "mistral", "nvidia"];
+  const systemProviders = ["groq", "gemini", "mistral", "nvidia", "xkiro"];
   const missingProviders = systemProviders.filter(p => !currentOrder.includes(p));
   
   if (missingProviders.length > 0) {
@@ -171,6 +181,7 @@ export async function saveConfig(config) {
   if (next.gemini?.keys) next.gemini.keys = [...new Set(next.gemini.keys)];
   if (next.mistral?.keys) next.mistral.keys = [...new Set(next.mistral.keys)];
   if (next.nvidia?.keys) next.nvidia.keys = [...new Set(next.nvidia.keys)];
+  if (next.xkiro?.keys) next.xkiro.keys = [...new Set(next.xkiro.keys)];
 
   if (shouldUseLocalStore()) {
     await writeLocalConfig(next);

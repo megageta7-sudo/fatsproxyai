@@ -1,5 +1,5 @@
 import { json, optionsResponse, readJson, requireAdmin, vercelHandler } from "../../src/http.mjs";
-import { callGroq, callGemini, callMistral, callNvidia } from "../../src/providers.mjs";
+import { callGroq, callGemini, callMistral, callNvidia, callXKiro } from "../../src/providers.mjs";
 import { loadConfig } from "../../src/store.mjs";
 import { maskKey } from "../../src/crypto.mjs";
 
@@ -50,6 +50,9 @@ async function handler(event) {
         } else if (provider === "nvidia") {
           caller = callNvidia;
           defaultModel = "mistralai/mistral-large-3-675b-instruct-2512";
+        } else if (provider === "xkiro") {
+          caller = callXKiro;
+          defaultModel = "google/gemini-2.5-flash";
         }
 
         await caller({ key: keyToTest, model: model || defaultModel, prompt: testPrompt });

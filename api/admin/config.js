@@ -26,6 +26,11 @@ export function publicConfig(config) {
       keyCount: config.nvidia?.keys?.length || 0,
       keys: (config.nvidia?.keys || []).map(maskKey)
     },
+    xkiro: {
+      model: config.xkiro?.model || "google/gemini-2.5-flash",
+      keyCount: config.xkiro?.keys?.length || 0,
+      keys: (config.xkiro?.keys || []).map(maskKey)
+    },
     extensionKeys: (config.extensionKeys || []).map((key) => ({
       id: key.id,
       label: key.label,
@@ -71,7 +76,7 @@ async function handler(event) {
     const next = {
       ...config,
       providerOrder: Array.isArray(body.providerOrder) && body.providerOrder.length
-        ? body.providerOrder.filter((name) => ["groq", "gemini", "mistral", "nvidia"].includes(name))
+        ? body.providerOrder.filter((name) => ["groq", "gemini", "mistral", "nvidia", "xkiro"].includes(name))
         : config.providerOrder,
       groq: {
         ...config.groq,
@@ -95,6 +100,12 @@ async function handler(event) {
         ...(config.nvidia || {}),
         model: body.nvidia?.model || config.nvidia?.model || "mistralai/mistral-large-3-675b-instruct-2512",
         keys: body.nvidia?.keys === undefined ? (config.nvidia?.keys || []) : restoreKeys(body.nvidia.keys, (config.nvidia?.keys || [])),
+        cursor: 0
+      },
+      xkiro: {
+        ...(config.xkiro || {}),
+        model: body.xkiro?.model || config.xkiro?.model || "google/gemini-2.5-flash",
+        keys: body.xkiro?.keys === undefined ? (config.xkiro?.keys || []) : restoreKeys(body.xkiro.keys, (config.xkiro?.keys || [])),
         cursor: 0
       }
     };

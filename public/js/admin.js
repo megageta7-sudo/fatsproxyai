@@ -6,7 +6,7 @@ const state = {
     editingProviderKey: null
 };
 
-const providers = ['groq', 'gemini', 'mistral', 'nvidia'];
+const providers = ['groq', 'gemini', 'mistral', 'nvidia', 'xkiro'];
 
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
@@ -120,6 +120,7 @@ function renderConfig() {
     $('gemini-model').value = c.gemini.model;
     $('mistral-model').value = c.mistral?.model || 'mistral-tiny';
     $('nvidia-model').value = c.nvidia?.model || 'mistralai/mistral-large-3-675b-instruct-2512';
+    $('xkiro-model').value = c.xkiro?.model || 'google/gemini-2.5-flash';
     renderProviderKeyLists();
     
     // Render provider order
@@ -224,6 +225,10 @@ $('save-provider-btn').addEventListener('click', async () => {
         nvidia: {
             keys: providerKeys('nvidia'),
             model: $('nvidia-model').value.trim()
+        },
+        xkiro: {
+            keys: providerKeys('xkiro'),
+            model: $('xkiro-model').value.trim()
         },
         providerOrder: Array.from($('provider-order').children).map(el => el.dataset.id)
     };
@@ -362,6 +367,7 @@ $('test-groq-btn').addEventListener('click', () => testProviderKeys('groq'));
 $('test-gemini-btn').addEventListener('click', () => testProviderKeys('gemini'));
 $('test-mistral-btn').addEventListener('click', () => testProviderKeys('mistral'));
 $('test-nvidia-btn').addEventListener('click', () => testProviderKeys('nvidia'));
+$('test-xkiro-btn').addEventListener('click', () => testProviderKeys('xkiro'));
 
 // Endpoint Testing Logic
 window.testEndpointPrompt = () => {
@@ -406,6 +412,7 @@ window.testEndpoint = async (token) => {
     await runTest('gemini');
     await runTest('mistral');
     await runTest('nvidia');
+    await runTest('xkiro');
     output.innerHTML += `<span class="info">[${new Date().toLocaleTimeString()}] Tests complete.</span>\n`;
 };
 
