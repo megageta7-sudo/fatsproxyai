@@ -48,12 +48,45 @@ async function handler(event) {
     }
   }
 
+  // === 1.5 CHECK FLOW DOWNLOADER LIFETIME LICENSE ===
+  if (body.action === "check-flow-license") {
+    try {
+      const { username, email } = body;
+      if (!db) return json(500, { ok: false, message: "Database not initialized" });
+      const configId = process.env.CONFIG_ID || "";
+      const col = configId ? `flowUsers-${configId}` : "flowUsers";
+
+      let isLifetime = false;
+      let licenseData = null;
+
+      if (username) {
+        const uDoc = await db.collection(col).doc(username.trim()).get();
+        if (uDoc.exists) {
+          isLifetime = true;
+          licenseData = uDoc.data();
+        }
+      }
+      if (!isLifetime && email) {
+        const eDoc = await db.collection(col).doc(email.trim()).get();
+        if (eDoc.exists) {
+          isLifetime = true;
+          licenseData = eDoc.data();
+        }
+      }
+
+      return json(200, { ok: true, isLifetime, data: licenseData });
+    } catch (e) {
+      return json(500, { ok: false, message: e.message });
+    }
+  }
+
   // === 2. WEBHOOK LYNKID LOGIC ===
   try {
     if (body.event === "ping" || body.event === "test") {
       return json(200, { ok: true, message: "Ping received" });
     }
 
+    const customerName = (body.data?.message_data?.customer?.name || "").trim();
     const email = body.data?.message_data?.customer?.email || body.user_email || body.email;
     const status = body.data?.message_action || body.status || body.transaction_status;
     const eventType = body.event;
@@ -67,10 +100,18 @@ async function handler(event) {
     const teepubUuid2M = "6a353b0c284713f214fa849f-6414-1730376308-1781873420229";
     const teepubUuid3M = "6a353b2b3fc9d87072a35796-1249-2799753855-1781873451171";
 
+    // Flow Downloader Lifetime UUID (Rp 15.000)
+    const flowDownloaderUuid = "6a1d8dfc07ee2f471eb120c2-3963-3104899899-1780321788660";
+
     let targetCollection = "users";
     let daysToAdd = 30;
+    let isFlowDownloader = false;
 
-    if (productUuid === expectedUuid) {
+    if (productUuid === flowDownloaderUuid) {
+        targetCollection = "flowUsers";
+        daysToAdd = 36500; // 100 Tahun (Lifetime)
+        isFlowDownloader = true;
+    } else if (productUuid === expectedUuid) {
         targetCollection = "users";
         daysToAdd = 30;
     } else if (productUuid === teepubUuid1M) {
@@ -86,21 +127,46 @@ async function handler(event) {
         return json(200, { ok: true, message: "Ignored (invalid product UUID)" });
     }
 
-    if (!email && eventType === "payment.received") return json(400, { ok: false, message: "No email found" });
-    if (!email) return json(200, { ok: true, message: "Event ignored" });
+    if (!email && !customerName && eventType === "payment.received") return json(400, { ok: false, message: "No email or username found" });
 
     const isSuccess = ["success", "paid", "settlement", "completed"].includes(String(status).toLowerCase());
     if (!isSuccess && eventType !== "payment.received") return json(200, { ok: true, message: "Ignored (not success)" });
 
-    const result = await extendSubscription(email, daysToAdd, targetCollection);
-    // Remove the trial flag since they actually paid
-    if (db) {
-        const configId = process.env.CONFIG_ID || "";
-        const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
-        await db.collection(usersCollection).doc(email).set({ isTrial: false }, { merge: true });
+    let result = null;
+    const configId = process.env.CONFIG_ID || "";
+    const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
+
+    if (isFlowDownloader) {
+        const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
+        const flowUserData = {
+            isLifetime: true,
+            customerName: customerName || email,
+            email: email || "",
+            subscriptionExpiry: expiryDate,
+            activatedAt: new Date().toISOString(),
+            productUuid: flowDownloaderUuid
+        };
+
+        if (db) {
+            // Daftarkan username perangkat (misal Condor-9DB1) jika diisi di kolom nama
+            if (customerName) {
+                await db.collection(usersCollection).doc(customerName).set(flowUserData, { merge: true });
+            }
+            // Daftarkan email pembeli juga
+            if (email) {
+                await db.collection(usersCollection).doc(email).set(flowUserData, { merge: true });
+            }
+        }
+        result = flowUserData;
+    } else {
+        result = await extendSubscription(email, daysToAdd, targetCollection);
+        // Remove the trial flag since they actually paid
+        if (db) {
+            await db.collection(usersCollection).doc(email).set({ isTrial: false }, { merge: true });
+        }
     }
 
-    await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Subscription extended for ${email} (+${daysToAdd} days)` });
+    await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Subscription extended for ${customerName || email} (+${daysToAdd} days)` });
     return json(200, { ok: true, message: `Subscription extended successfully (+${daysToAdd} days)`, data: result });
   } catch (error) {
     console.error("[Webhook] Error:", error);
