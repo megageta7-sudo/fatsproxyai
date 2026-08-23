@@ -1,5 +1,5 @@
 
-const PROVIDER_TIMEOUT = Number(process.env.PROVIDER_TIMEOUT || 10000); // 10s default
+const PROVIDER_TIMEOUT = Number(process.env.PROVIDER_TIMEOUT || 20000); // 20s default
 
 async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT) {
   const controller = new AbortController();
@@ -164,7 +164,7 @@ export async function callMistral({ key, model, image, prompt, system, temperatu
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: model || "mistral-tiny",
+      model: model || "pixtral-12b-2409",
       messages: [
         ...(system ? [{ role: "system", content: system }] : []),
         ...(history || []).map(msg => ({ 
@@ -272,7 +272,7 @@ export async function callXKiro({ key, model, image, prompt, system, temperature
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      model: model || "google/gemini-2.5-flash",
+      model: model || "mistralai/ministral-14b",
       messages: [
         ...(system ? [{ role: "system", content: system }] : []),
         ...(history || []).map(msg => ({ 

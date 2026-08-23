@@ -5,6 +5,25 @@ const adobeCategories = [
   "science", "social issues", "sports", "technology", "transport", "travel"
 ];
 
+export function stripThinking(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .trim();
+}
+
+export function cleanMarkdown(text) {
+  if (!text || typeof text !== "string") return "";
+  return text
+    .replace(/^[\s\-*•#>]+/g, "") // Strip leading markdown bullets/quotes/hashes
+    .replace(/^\*+|\*+$/g, "")    // Strip leading/trailing asterisks
+    .replace(/^["']+|["']+$/g, "") // Strip leading/trailing quotes
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function stripCodeFence(text) {
   return String(text || "")
     .replace(/^```(?:json)?/i, "")
@@ -13,7 +32,7 @@ function stripCodeFence(text) {
 }
 
 function extractJson(text) {
-  const cleaned = stripCodeFence(text);
+  const cleaned = stripCodeFence(stripThinking(text));
   try {
     return JSON.parse(cleaned);
   } catch {
@@ -25,7 +44,7 @@ function extractJson(text) {
 }
 
 function normalizeCategory(value) {
-  const lower = String(value || "").toLowerCase().trim();
+  const lower = cleanMarkdown(String(value || "")).toLowerCase();
   return adobeCategories.includes(lower) ? lower : "business";
 }
 
@@ -35,7 +54,7 @@ function normalizeKeywords(value, settings = {}) {
   
   const rawRemove = Array.isArray(settings.removeKeywords) ? settings.removeKeywords : String(settings.removeKeywords || "").split(",");
   const removeSet = new Set(
-    rawRemove.map(k => String(k).toLowerCase().replace(/\s+/g, " ").trim()).filter(Boolean)
+    rawRemove.map(k => cleanMarkdown(String(k)).toLowerCase()).filter(Boolean)
   );
 
   const seen = new Set();
@@ -43,7 +62,10 @@ function normalizeKeywords(value, settings = {}) {
   
   // 1. Filter out duplicates and removeKeywords
   for (const item of raw) {
-    const keyword = String(item).toLowerCase().replace(/\s+/g, " ").trim();
+    let keyword = cleanMarkdown(String(item)).toLowerCase();
+    // Strip any lingering bullet numbering like "1. keyword" or leading symbols
+    keyword = keyword.replace(/^[\d\.\-*•]+\s*/, "").replace(/[*_`]/g, "").trim();
+    
     if (!keyword || removeSet.has(keyword) || seen.has(keyword)) continue;
     seen.add(keyword);
     initialKeywords.push(keyword);
@@ -52,7 +74,7 @@ function normalizeKeywords(value, settings = {}) {
   // 2. Add addKeywords
   const rawAdd = Array.isArray(settings.addKeywords) ? settings.addKeywords : String(settings.addKeywords || "").split(",");
   const addKeywords = rawAdd
-    .map(k => String(k).toLowerCase().replace(/\s+/g, " ").trim())
+    .map(k => cleanMarkdown(String(k)).toLowerCase().replace(/^[\d\.\-*•]+\s*/, "").replace(/[*_`]/g, "").trim())
     .filter(k => k && !seen.has(k));
 
   let combined = [];
@@ -80,47 +102,64 @@ function normalizeKeywords(value, settings = {}) {
 
 export function normalizeMetadata(providerText, settings = {}) {
   let data;
+  const sanitizedText = stripThinking(String(providerText || "")).trim();
+
   try {
-    data = typeof providerText === "string" ? extractJson(providerText) : providerText;
+    data = typeof providerText === "string" ? extractJson(sanitizedText) : providerText;
   } catch (e) {
     // Fallback for plain text responses (detect labeled format)
-    const text = String(providerText || "").trim();
-    const titleMatch = text.match(/TITLE:\s*(.+)/i);
-    const kwMatch = text.match(/KEYWORDS:\s*(.+)/i);
-    const catMatch = text.match(/CATEGORY:\s*(.+)/i);
-    const ftMatch = text.match(/FILE_TYPE:\s*(.+)/i);
+    const text = sanitizedText;
+    
+    // Robust regex matching for labeled formats (handles **TITLE:**, * **Title:**, # Title:, etc.)
+    const titleMatch = text.match(/(?:^|\n)(?:[-*•#\s]*)(?:\*\*)?TITLE(?:\*\*)?[:\-]\s*(.*?)(?=\n(?:[-*•#\s]*)(?:\*\*)?(?:KEYWORDS|CATEGORY|TAGS|FILE_TYPE)|\n\n|$)/is);
+    const kwMatch = text.match(/(?:^|\n)(?:[-*•#\s]*)(?:\*\*)?(?:KEYWORDS|TAGS)(?:\*\*)?[:\-]\s*(.*?)(?=\n(?:[-*•#\s]*)(?:\*\*)?(?:CATEGORY|TITLE|FILE_TYPE)|\n\n|$)/is);
+    const catMatch = text.match(/(?:^|\n)(?:[-*•#\s]*)(?:\*\*)?CATEGORY(?:\*\*)?[:\-]\s*(.*?)(?=\n(?:[-*•#\s]*)(?:\*\*)?(?:KEYWORDS|TITLE|FILE_TYPE)|\n\n|$)/is);
+    const ftMatch = text.match(/(?:^|\n)(?:[-*•#\s]*)(?:\*\*)?FILE_TYPE(?:\*\*)?[:\-]\s*(.*?)(?=\n|$)/is);
 
     if (titleMatch || kwMatch) {
+      const rawTitle = titleMatch ? cleanMarkdown(titleMatch[1]) : cleanMarkdown(text.slice(0, 200));
+      const rawKw = kwMatch ? kwMatch[1].split(",").map(k => cleanMarkdown(k)).filter(Boolean) : [];
+      const rawCat = catMatch ? cleanMarkdown(catMatch[1]).toLowerCase() : "business";
+      
+      const keywords = normalizeKeywords(rawKw, settings);
+      const category = normalizeCategory(rawCat);
+      const fileTypeFlag = ftMatch ? ftMatch[1].toLowerCase().includes("illustration") : false;
+      const legacyResult = `${rawTitle}&&${keywords.join(", ")}&&${category}&&false&&${fileTypeFlag}`;
+
       return {
-        result: text,
-        title: titleMatch ? titleMatch[1].trim() : text.slice(0, 200),
-        keywords: kwMatch ? kwMatch[1].split(",").map(k => k.trim()).filter(Boolean) : [],
-        category: catMatch ? catMatch[1].toLowerCase().trim() : "business",
+        result: legacyResult,
+        title: rawTitle.slice(0, 200),
+        keywords,
+        category,
         peopleOrProperty: false,
-        fileTypeFlag: ftMatch ? ftMatch[1].toLowerCase().includes("illustration") : false,
-        legacyResult: text
+        fileTypeFlag,
+        legacyResult
       };
     }
 
+    const fallbackTitle = cleanMarkdown(text.slice(0, 200));
+    const fallbackKeywords = normalizeKeywords(text.split(","), settings);
+    const legacyResult = `${fallbackTitle}&&${fallbackKeywords.join(", ")}&&business&&false&&false`;
+
     return {
-      result: text,
-      title: text.slice(0, 200),
-      keywords: text.split(",").map(k => k.trim()).filter(Boolean),
+      result: legacyResult,
+      title: fallbackTitle,
+      keywords: fallbackKeywords,
       category: "business",
       peopleOrProperty: false,
       fileTypeFlag: false,
-      legacyResult: text
+      legacyResult
     };
   }
   
   const start = String(settings.startText || "").trim();
   const end = String(settings.endText || "").trim();
-  let baseTitle = String(data.title || "").replace(/\s+/g, " ").trim();
+  let baseTitle = cleanMarkdown(String(data.title || ""));
   
   let title = baseTitle;
   if (start) title = start + " " + title;
   if (end) title = title + " " + end;
-  title = title.replace(/\s+/g, " ").trim().slice(0, 200);
+  title = cleanMarkdown(title).slice(0, 200);
 
   const keywords = normalizeKeywords(data.keywords, settings);
   const category = normalizeCategory(data.category);
@@ -147,4 +186,3 @@ export function normalizeMetadata(providerText, settings = {}) {
     mature: data?.mature || false
   };
 }
-

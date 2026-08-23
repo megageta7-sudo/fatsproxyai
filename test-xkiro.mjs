@@ -1,28 +1,30 @@
 import { callXKiro } from "./src/providers.mjs";
-import { loadConfig } from "./src/store.mjs";
 
-console.log("Checking xkiro provider integration...");
+const apiKey = process.env.XKIRO_KEY || "sk-xt-ed319e809668248dd5338fbf7a0e16f5f656196678dcd2b9";
+const model = process.env.XKIRO_MODEL || "mistralai/ministral-14b";
 
-// Check providers export
-if (typeof callXKiro === "function") {
-  console.log("✓ callXKiro is exported properly");
-} else {
-  console.error("✗ callXKiro is not a function");
-}
-
-// Check store config loading
-try {
-  const config = await loadConfig();
-  if (config.xkiro && config.providerOrder.includes("xkiro")) {
-    console.log("✓ xkiro config and providerOrder loaded successfully:", {
-      model: config.xkiro.model,
-      providerOrder: config.providerOrder
+async function test() {
+  console.log(`\nTesting xKiro with Model: ${model}...`);
+  try {
+    const startTime = Date.now();
+    const response = await callXKiro({
+      key: apiKey,
+      model: model,
+      prompt: "Halo! Berikan respons singkat konfirmasi bahwa model mistralai/ministral-14b aktif di xKiro."
     });
-  } else {
-    console.error("✗ xkiro missing in config:", config);
+    const duration = Date.now() - startTime;
+
+    console.log(`\n✓ SUCCESS (${duration}ms):`);
+    console.log("-----------------------------------------");
+    console.log(response.result);
+    console.log("-----------------------------------------");
+    if (response.usage) {
+      console.log("Usage stats:", response.usage);
+    }
+  } catch (error) {
+    console.error(`\n✗ FAILED (Status: ${error.statusCode || "N/A"}):`);
+    console.error(error.message);
   }
-} catch (e) {
-  console.log("Config load info (Firestore or Local):", e.message);
 }
 
-console.log("Verification finished.");
+test();

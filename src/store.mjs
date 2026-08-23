@@ -41,7 +41,7 @@ const defaultConfig = {
     cursor: 0
   },
   mistral: {
-    model: process.env.MISTRAL_MODEL || "mistral-tiny",
+    model: process.env.MISTRAL_MODEL || "pixtral-12b-2409",
     keys: parseEnvKeys("MISTRAL_KEYS"),
     cursor: 0
   },
@@ -51,7 +51,7 @@ const defaultConfig = {
     cursor: 0
   },
   xkiro: {
-    model: process.env.XKIRO_MODEL || "google/gemini-2.5-flash",
+    model: process.env.XKIRO_MODEL || "mistralai/ministral-14b",
     keys: parseEnvKeys("XKIRO_KEYS"),
     cursor: 0
   },

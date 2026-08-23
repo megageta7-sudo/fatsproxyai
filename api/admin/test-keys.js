@@ -46,13 +46,13 @@ async function handler(event) {
           defaultModel = "gemini-2.5-flash";
         } else if (provider === "mistral") {
           caller = callMistral;
-          defaultModel = "mistral-tiny";
+          defaultModel = "pixtral-12b-2409";
         } else if (provider === "nvidia") {
           caller = callNvidia;
           defaultModel = "mistralai/mistral-large-3-675b-instruct-2512";
         } else if (provider === "xkiro") {
           caller = callXKiro;
-          defaultModel = "google/gemini-2.5-flash";
+          defaultModel = "mistralai/ministral-14b";
         }
 
         await caller({ key: keyToTest, model: model || defaultModel, prompt: testPrompt });
