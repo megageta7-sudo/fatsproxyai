@@ -1,0 +1,265 @@
+﻿<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kebijakan Privasi - Flow Mass Downloader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #090a0f;
+            --card-bg: rgba(17, 21, 33, 0.85);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --accent-cyan: #38bdf8;
+            --accent-indigo: #6366f1;
+            --accent-violet: #a855f7;
+            --accent-emerald: #10b981;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            line-height: 1.8;
+            padding: 40px 20px 80px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Ambient Glow */
+        .glow-orb {
+            position: fixed;
+            filter: blur(140px);
+            z-index: 0;
+            opacity: 0.25;
+            pointer-events: none;
+        }
+        .glow-1 { top: -100px; left: 10%; width: 450px; height: 450px; background: var(--accent-indigo); }
+        .glow-2 { bottom: -100px; right: 10%; width: 450px; height: 450px; background: var(--accent-cyan); }
+
+        .container {
+            max-width: 840px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 999px;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #ffffff 40%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .last-updated {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        /* Content Card */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 36px 32px;
+            backdrop-filter: blur(16px);
+            margin-bottom: 24px;
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+        }
+
+        h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 28px 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        h2:first-of-type { margin-top: 0; }
+        
+        h2 .num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            background: rgba(99, 102, 241, 0.2);
+            color: var(--accent-cyan);
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 14px;
+            font-size: 0.98rem;
+        }
+
+        ul {
+            list-style: none;
+            margin: 12px 0 20px;
+            padding-left: 0;
+        }
+
+        li {
+            position: relative;
+            padding-left: 24px;
+            margin-bottom: 10px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        li::before {
+            content: "•";
+            position: absolute;
+            left: 8px;
+            color: var(--accent-cyan);
+            font-weight: bold;
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .highlight-box {
+            background: rgba(56, 189, 248, 0.05);
+            border-left: 3px solid var(--accent-cyan);
+            padding: 16px 20px;
+            border-radius: 0 12px 12px 0;
+            margin: 16px 0;
+        }
+        .highlight-box p {
+            margin: 0;
+            color: #cbd5e1;
+            font-size: 0.92rem;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-top: 40px;
+        }
+        .footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="glow-orb glow-1"></div>
+    <div class="glow-orb glow-2"></div>
+
+    <div class="container">
+        <header class="header">
+            <div class="badge">Legal & Privacy Statement</div>
+            <h1>Kebijakan Privasi</h1>
+            <p class="last-updated">Ekstensi: <strong>Flow Mass Downloader</strong> | Terakhir Diperbarui: 24 Agustus 2026</p>
+        </header>
+
+        <div class="card">
+            <h2><span class="num">1</span> Pendahuluan</h2>
+            <p>
+                Kebijakan Privasi ini menjelaskan bagaimana ekstensi browser <strong>Flow Mass Downloader</strong> ("kami", "ekstensi") mengelola, menggunakan, dan melindungi informasi pengguna saat Anda menggunakan layanan ekstensi ini di browser Google Chrome.
+            </p>
+            <p>
+                Kami berkomitmen penuh untuk menjaga privasi Anda. Ekstensi ini dirancang dengan prinsip <em>privacy-first</em> di mana semua pemrosesan download dan pemilihan berkas dilakukan secara lokal di perangkat Anda.
+            </p>
+
+            <h2><span class="num">2</span> Data yang Kami Kumpulkan & Cara Penggunaannya</h2>
+            <p>Kami <strong>TIDAK PERNAH</strong> mengumpulkan, membaca, atau menjual data pribadi Anda (seperti nama asli, alamat email, password, kata kunci pencarian, riwayat penjelajahan umum, atau percakapan).</p>
+            
+            <p>Data teknis non-pribadi yang diproses oleh ekstensi terbatas pada:</p>
+            <ul>
+                <li><strong>Pengaturan Pengguna & Riwayat Download:</strong> Nama folder unduhan pilihan Anda dan ID unduhan disimpan secara lokal menggunakan <span class="tag">chrome.storage.local</span> hanya untuk memastikan berkas yang sama tidak terunduh dua kali.</li>
+                <li><strong>Status Lisensi & Anonymous Device ID:</strong> Ekstensi membuat ID perangkat acak (misal: gabungan nama fauna/flora seperti <em>Tiger-892</em>) untuk memvalidasi periode uji coba (Trial) dan status langganan Lifetime Anda.</li>
+                <li><strong>Validasi Lisensi Webhook:</strong> Ekstensi mengirimkan ID anonim tersebut ke server endpoint aman kami (<span class="tag">fatsproxyai.vercel.app</span>) hanya untuk memverifikasi apakah akun/perangkat telah teraktivasi status Pro.</li>
+            </ul>
+
+            <div class="highlight-box">
+                <p><strong>Penting:</strong> Tidak ada file gambar, prompt kreatif, atau aset yang Anda buat di Google Flow yang dikirim atau diunggah ke server kami. Semua berkas diunduh langsung dari server Google ke folder download lokal komputer Anda.</p>
+            </div>
+
+            <h2><span class="num">3</span> Izin Ekstensi (Chrome Permissions)</h2>
+            <p>Ekstensi ini memerlukan beberapa izin dengan tujuan fungsional spesifik sebagai berikut:</p>
+            <ul>
+                <li><span class="tag">downloads</span>: Diperlukan untuk mengotomatiskan penyimpanan berkas gambar yang dipilih ke direktori unduhan komputer Anda secara rapi.</li>
+                <li><span class="tag">storage</span>: Diperlukan untuk menyimpan preferensi folder download, batas unduhan, dan status lisensi di browser Anda.</li>
+                <li><span class="tag">host_permissions (labs.google & subdomain terkait)</span>: Diperlukan agar ekstensi dapat membaca tombol aset di halaman Google Flow dan mendownload gambar resolusi penuh.</li>
+            </ul>
+
+            <h2><span class="num">4</span> Keamanan Data</h2>
+            <p>
+                Semua komunikasi ke server verifikasi lisensi kami dilakukan melalui protokol terenkripsi <strong>HTTPS (SSL/TLS)</strong> standar industri. Kami menerapkan langkah-langkah keamanan teknis yang ketat untuk mencegah akses tanpa izin.
+            </p>
+
+            <h2><span class="num">5</span> Hak Pengguna</h2>
+            <p>
+                Anda memiliki kendali penuh atas ekstensi ini. Anda dapat menghapus data lokal (seperti riwayat download dan preferensi) kapan saja dengan menghapus ekstensi dari browser Chrome Anda atau melalui menu pengaturan browser.
+            </p>
+
+            <h2><span class="num">6</span> Penafian (Disclaimer)</h2>
+            <p>
+                <strong>Flow Mass Downloader</strong> adalah ekstensi independen yang dikembangkan oleh pihak ketiga dan <strong>tidak berafiliasi, disponsori, atau didukung secara resmi oleh Google LLC</strong>. Semua merek dagang adalah milik dari masing-masing pemiliknya.
+            </p>
+
+            <h2><span class="num">7</span> Kontak Dukungan</h2>
+            <p>
+                Jika Anda memiliki pertanyaan tentang Kebijakan Privasi ini atau membutuhkan bantuan terkait ekstensi, silakan hubungi kami melalui saluran dukungan:
+            </p>
+            <ul>
+                <li>Email Pengembang / Dukungan: <span class="tag">support@fatsproxyai.vercel.app</span> (atau kontak Lynk.id terkait)</li>
+                <li>Portal Bantuan: <a href="https://lynk.id/aronisme" target="_blank" style="color: var(--accent-cyan); text-decoration: none;">lynk.id/aronisme</a></li>
+            </ul>
+        </div>
+
+        <footer class="footer">
+            <p>&copy; 2026 Flow Mass Downloader. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>
