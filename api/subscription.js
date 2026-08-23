@@ -48,23 +48,41 @@ async function handler(event) {
     }
   }
 
-  // === 1.5 CHECK FLOW DOWNLOADER LIFETIME LICENSE (BY USERNAME ONLY) ===
+  // === 1.5 CHECK FLOW DOWNLOADER LIFETIME LICENSE ===
   if (body.action === "check-flow-license") {
     try {
-      const { username } = body;
-      if (!username) return json(400, { ok: false, message: "Username is required" });
+      const { username, email } = body;
+      if (!username && !email) return json(400, { ok: false, message: "Username or email is required" });
       if (!db) return json(500, { ok: false, message: "Database not initialized" });
       
       const configId = process.env.CONFIG_ID || "";
       const col = configId ? `flowUsers-${configId}` : "flowUsers";
 
-      const uDoc = await db.collection(col).doc(username.trim()).get();
-      const isLifetime = uDoc.exists && uDoc.data()?.isLifetime === true;
+      let isLifetime = false;
+      let userData = null;
+
+      // Prioritas 1: Cek dokumen berdasarkan Username (flowUsers/Condor-9DB1)
+      if (username) {
+        const uDoc = await db.collection(col).doc(username.trim()).get();
+        if (uDoc.exists && uDoc.data()?.isLifetime === true) {
+          isLifetime = true;
+          userData = uDoc.data();
+        }
+      }
+
+      // Prioritas 2: Cek dokumen berdasarkan Email jika username dicari via email
+      if (!isLifetime && email) {
+        const eDoc = await db.collection(col).doc(email.trim()).get();
+        if (eDoc.exists && eDoc.data()?.isLifetime === true) {
+          isLifetime = true;
+          userData = eDoc.data();
+        }
+      }
 
       return json(200, { 
         ok: true, 
         isLifetime, 
-        data: uDoc.exists ? uDoc.data() : null 
+        data: userData 
       });
     } catch (e) {
       return json(500, { ok: false, message: e.message });
@@ -126,29 +144,44 @@ async function handler(event) {
     const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
 
     if (isFlowDownloader) {
-        // WAJIB ADA USERNAME: Jika pembeli tidak mengisi username di kolom nama, tidak dapat diverifikasi otomatis
-        if (!customerName) {
-            console.warn("[Flow Downloader Webhook] Username pembeli kosong. Pembelian tidak diverifikasi.");
-            await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 400, host: "Lynk.id", message: "Flow Downloader purchase ignored: Customer name (username) is missing." });
-            return json(200, { ok: false, message: "Ignored: Username in name field is required for Flow Downloader" });
+        const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
+        
+        // 1 DOKUMEN TUNGGAL PER TRANSAKSI:
+        // Jika ada Username di kolom nama -> ID Dokumen = Username (Langsung Aktif Otomatis)
+        // Jika pembeli lupa/salah isi nama -> ID Dokumen = Email Pembeli (Tercatat untuk dicek Admin)
+        const hasUsername = Boolean(customerName && customerName.length >= 3);
+        const docId = hasUsername ? customerName : email;
+
+        if (!docId) {
+            console.warn("[Flow Downloader Webhook] No customer name or email found.");
+            return json(400, { ok: false, message: "No customer name or email found" });
         }
 
-        const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
         const flowUserData = {
             isLifetime: true,
-            username: customerName,
+            username: hasUsername ? customerName : "",
+            customerName: customerName || "",
             email: email || "",
             subscriptionExpiry: expiryDate,
             activatedAt: new Date().toISOString(),
-            productUuid: flowDownloaderUuid
+            productUuid: flowDownloaderUuid,
+            autoVerified: hasUsername,
+            needsManualClaim: !hasUsername
         };
 
         if (db) {
-            // HANYA 1 DOKUMEN TUNGGAL: Berdasarkan Username Perangkat (contoh: flowUsers/Condor-9DB1)
-            await db.collection(usersCollection).doc(customerName).set(flowUserData, { merge: true });
+            await db.collection(usersCollection).doc(docId).set(flowUserData, { merge: true });
         }
         result = flowUserData;
-        await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Lifetime activated for username: ${customerName}` });
+        await recordLog({ 
+            method: "WEBHOOK", 
+            path: "/api/webhook-lynkid", 
+            status: 200, 
+            host: "Lynk.id", 
+            message: hasUsername 
+                ? `Lifetime auto-activated for username: ${customerName}` 
+                : `Payment recorded for email: ${email} (Manual claim required)` 
+        });
     } else {
         if (!email && eventType === "payment.received") return json(400, { ok: false, message: "No email found" });
         if (!email) return json(200, { ok: true, message: "Event ignored" });
