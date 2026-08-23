@@ -11,7 +11,7 @@ async function handler(event) {
 
   const body = readJson(event);
 
-  // === 1. START TRIAL LOGIC ===
+  // === 1. START TRIAL LOGIC (TeePublic / Smart Keywords) ===
   // Use body.action to route since Vercel rewrites may alter event.path
   if (body.action === "start-trial") {
     try {
@@ -48,33 +48,24 @@ async function handler(event) {
     }
   }
 
-  // === 1.5 CHECK FLOW DOWNLOADER LIFETIME LICENSE ===
+  // === 1.5 CHECK FLOW DOWNLOADER LIFETIME LICENSE (BY USERNAME ONLY) ===
   if (body.action === "check-flow-license") {
     try {
-      const { username, email } = body;
+      const { username } = body;
+      if (!username) return json(400, { ok: false, message: "Username is required" });
       if (!db) return json(500, { ok: false, message: "Database not initialized" });
+      
       const configId = process.env.CONFIG_ID || "";
       const col = configId ? `flowUsers-${configId}` : "flowUsers";
 
-      let isLifetime = false;
-      let licenseData = null;
+      const uDoc = await db.collection(col).doc(username.trim()).get();
+      const isLifetime = uDoc.exists && uDoc.data()?.isLifetime === true;
 
-      if (username) {
-        const uDoc = await db.collection(col).doc(username.trim()).get();
-        if (uDoc.exists) {
-          isLifetime = true;
-          licenseData = uDoc.data();
-        }
-      }
-      if (!isLifetime && email) {
-        const eDoc = await db.collection(col).doc(email.trim()).get();
-        if (eDoc.exists) {
-          isLifetime = true;
-          licenseData = eDoc.data();
-        }
-      }
-
-      return json(200, { ok: true, isLifetime, data: licenseData });
+      return json(200, { 
+        ok: true, 
+        isLifetime, 
+        data: uDoc.exists ? uDoc.data() : null 
+      });
     } catch (e) {
       return json(500, { ok: false, message: e.message });
     }
@@ -127,8 +118,6 @@ async function handler(event) {
         return json(200, { ok: true, message: "Ignored (invalid product UUID)" });
     }
 
-    if (!email && !customerName && eventType === "payment.received") return json(400, { ok: false, message: "No email or username found" });
-
     const isSuccess = ["success", "paid", "settlement", "completed"].includes(String(status).toLowerCase());
     if (!isSuccess && eventType !== "payment.received") return json(200, { ok: true, message: "Ignored (not success)" });
 
@@ -137,10 +126,17 @@ async function handler(event) {
     const usersCollection = configId ? `${targetCollection}-${configId}` : targetCollection;
 
     if (isFlowDownloader) {
+        // WAJIB ADA USERNAME: Jika pembeli tidak mengisi username di kolom nama, tidak dapat diverifikasi otomatis
+        if (!customerName) {
+            console.warn("[Flow Downloader Webhook] Username pembeli kosong. Pembelian tidak diverifikasi.");
+            await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 400, host: "Lynk.id", message: "Flow Downloader purchase ignored: Customer name (username) is missing." });
+            return json(200, { ok: false, message: "Ignored: Username in name field is required for Flow Downloader" });
+        }
+
         const expiryDate = new Date(Date.now() + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
         const flowUserData = {
             isLifetime: true,
-            customerName: customerName || email,
+            username: customerName,
             email: email || "",
             subscriptionExpiry: expiryDate,
             activatedAt: new Date().toISOString(),
@@ -148,25 +144,23 @@ async function handler(event) {
         };
 
         if (db) {
-            // Daftarkan username perangkat (misal Condor-9DB1) jika diisi di kolom nama
-            if (customerName) {
-                await db.collection(usersCollection).doc(customerName).set(flowUserData, { merge: true });
-            }
-            // Daftarkan email pembeli juga
-            if (email) {
-                await db.collection(usersCollection).doc(email).set(flowUserData, { merge: true });
-            }
+            // HANYA 1 DOKUMEN TUNGGAL: Berdasarkan Username Perangkat (contoh: flowUsers/Condor-9DB1)
+            await db.collection(usersCollection).doc(customerName).set(flowUserData, { merge: true });
         }
         result = flowUserData;
+        await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Lifetime activated for username: ${customerName}` });
     } else {
+        if (!email && eventType === "payment.received") return json(400, { ok: false, message: "No email found" });
+        if (!email) return json(200, { ok: true, message: "Event ignored" });
+
         result = await extendSubscription(email, daysToAdd, targetCollection);
         // Remove the trial flag since they actually paid
         if (db) {
             await db.collection(usersCollection).doc(email).set({ isTrial: false }, { merge: true });
         }
+        await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Subscription extended for ${email} (+${daysToAdd} days)` });
     }
 
-    await recordLog({ method: "WEBHOOK", path: "/api/webhook-lynkid", status: 200, host: "Lynk.id", message: `Subscription extended for ${customerName || email} (+${daysToAdd} days)` });
     return json(200, { ok: true, message: `Subscription extended successfully (+${daysToAdd} days)`, data: result });
   } catch (error) {
     console.error("[Webhook] Error:", error);
