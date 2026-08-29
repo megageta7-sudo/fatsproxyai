@@ -135,18 +135,26 @@ async function handler(event) {
           isLifetime: isDev
         };
         try {
-          await db.collection("flowUsers").doc(cleanEmail).set(userData, { merge: true });
+          const saveCols = ["flowUsers"];
+          if (configId && configId !== "flowUsers") saveCols.push(`flowUsers-${configId}`);
+          for (const col of saveCols) {
+            await db.collection(col).doc(cleanEmail).set(userData, { merge: true });
+          }
           if (isDev) isLifetime = true;
         } catch (e) {
           console.error("[flowUsers auto-register error]", e);
         }
       } else if (userData && email) {
         try {
-          await db.collection("flowUsers").doc(email.toLowerCase().trim()).set({
-            lastLoginAt: new Date().toISOString(),
-            displayName: body.displayName || userData.displayName || "",
-            photoURL: body.photoURL || userData.photoURL || ""
-          }, { merge: true });
+          const saveCols = ["flowUsers"];
+          if (configId && configId !== "flowUsers") saveCols.push(`flowUsers-${configId}`);
+          for (const col of saveCols) {
+            await db.collection(col).doc(email.toLowerCase().trim()).set({
+              lastLoginAt: new Date().toISOString(),
+              displayName: body.displayName || userData.displayName || "",
+              photoURL: body.photoURL || userData.photoURL || ""
+            }, { merge: true });
+          }
         } catch (e) {}
       }
 
