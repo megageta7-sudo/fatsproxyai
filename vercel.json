@@ -103,7 +103,11 @@
     },
     {
       "source": "/flow-privacy",
-      "destination": "/public/flow-privacy.html"
+      "destination": "/api/flow-privacy.js"
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/api/flow-privacy.js"
     }
   ]
 }
