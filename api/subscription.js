@@ -118,6 +118,38 @@ async function handler(event) {
         }
       }
 
+      // Jika belum ada di database, otomatis daftarkan user baru di koleksi flowUsers
+      if (!userData && email) {
+        const cleanEmail = email.toLowerCase().trim();
+        const isDev = (cleanEmail === "aronisme@gmail.com" || cleanEmail === "sr6a@gmail.com");
+        const trialStart = Date.now();
+        const trialExpiry = new Date(trialStart + 2 * 24 * 60 * 60 * 1000).toISOString();
+        userData = {
+          email: cleanEmail,
+          displayName: body.displayName || "",
+          photoURL: body.photoURL || "",
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          trialStart: trialStart,
+          subscriptionExpiry: isDev ? "2126-01-01T00:00:00.000Z" : trialExpiry,
+          isLifetime: isDev
+        };
+        try {
+          await db.collection("flowUsers").doc(cleanEmail).set(userData, { merge: true });
+          if (isDev) isLifetime = true;
+        } catch (e) {
+          console.error("[flowUsers auto-register error]", e);
+        }
+      } else if (userData && email) {
+        try {
+          await db.collection("flowUsers").doc(email.toLowerCase().trim()).set({
+            lastLoginAt: new Date().toISOString(),
+            displayName: body.displayName || userData.displayName || "",
+            photoURL: body.photoURL || userData.photoURL || ""
+          }, { merge: true });
+        } catch (e) {}
+      }
+
       return json(200, { 
         ok: true, 
         isLifetime, 
