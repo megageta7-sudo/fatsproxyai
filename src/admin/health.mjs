@@ -1,5 +1,5 @@
 import { json, optionsResponse, requireAdmin } from "../http.mjs";
-import { loadConfig } from "../store.mjs";
+import { loadConfig, normalizeProviderKeys } from "../store.mjs";
 import { getKeyOperationalStatus, getActiveAlerts } from "../telemetry.mjs";
 
 const PROVIDERS = ["groq", "gemini", "mistral", "nvidia", "xkiro"];
@@ -21,13 +21,13 @@ export async function handler(event) {
 
     for (const provider of PROVIDERS) {
       const providerConfig = config[provider] || { keys: [], model: "default" };
-      const rawKeys = providerConfig.keys || [];
+      const normalizedKeys = normalizeProviderKeys(provider, providerConfig.keys || []);
       const keyStatuses = [];
 
-      for (const key of rawKeys) {
+      for (const key of normalizedKeys) {
         totalKeysCount += 1;
         const keyId = key.id;
-        const preview = key.preview || (key.key ? `${key.key.slice(0, 6)}...${key.key.slice(-4)}` : "unknown");
+        const preview = key.preview;
         const isActive = key.active !== false;
 
         const opStatus = await getKeyOperationalStatus(provider, keyId);

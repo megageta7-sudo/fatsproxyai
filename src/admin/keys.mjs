@@ -90,9 +90,9 @@ export async function handler(event) {
       const cleanKey = String(rawKey || "").trim();
       if (!cleanKey) return json(400, { ok: false, message: "New key value is required" });
 
-      const targetIndex = keys.findIndex(k => k.id === keyId);
+      const targetIndex = keys.findIndex(k => k.id === keyId || k.preview === keyId || k.key === keyId);
       if (targetIndex === -1) {
-        return json(404, { ok: false, message: "Key not found" });
+        return json(404, { ok: false, message: `Key '${keyId}' not found in ${provider}` });
       }
 
       const hash = sha256(cleanKey);
@@ -129,10 +129,10 @@ export async function handler(event) {
       if (!keyId) return json(400, { ok: false, message: "keyId is required for delete" });
 
       const initialLength = keys.length;
-      keys = keys.filter(k => k.id !== keyId);
+      keys = keys.filter(k => k.id !== keyId && k.preview !== keyId && k.key !== keyId);
 
       if (keys.length === initialLength) {
-        return json(404, { ok: false, message: "Key not found" });
+        return json(404, { ok: false, message: `Key '${keyId}' not found in ${provider}` });
       }
 
       config[provider].keys = keys;
@@ -158,8 +158,8 @@ export async function handler(event) {
     // ─── ACTION: TOGGLE ACTIVE / DISABLED ───
     if (action === "toggle") {
       if (!keyId) return json(400, { ok: false, message: "keyId is required" });
-      const target = keys.find(k => k.id === keyId);
-      if (!target) return json(404, { ok: false, message: "Key not found" });
+      const target = keys.find(k => k.id === keyId || k.preview === keyId || k.key === keyId);
+      if (!target) return json(404, { ok: false, message: `Key '${keyId}' not found in ${provider}` });
 
       const newActiveState = typeof active === "boolean" ? active : !target.active;
       target.active = newActiveState;
@@ -186,8 +186,8 @@ export async function handler(event) {
     // ─── ACTION: DIAGNOSTIC LIVE TEST (Reviewer Point 13) ───
     if (action === "test") {
       if (!keyId) return json(400, { ok: false, message: "keyId is required for test" });
-      const target = keys.find(k => k.id === keyId);
-      if (!target || !target.key) return json(404, { ok: false, message: "Key not found" });
+      const target = keys.find(k => k.id === keyId || k.preview === keyId || k.key === keyId || k.hash === keyId);
+      if (!target || !target.key) return json(404, { ok: false, message: `Key '${keyId}' not found in ${provider}` });
 
       const caller = callers[provider];
       const testModel = providerConfig.model || defaultModels[provider];

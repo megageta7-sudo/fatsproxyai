@@ -2,60 +2,37 @@ import { json, optionsResponse, readJson, requireAdmin } from "../http.mjs";
 import { maskKey, normalizeKeyList } from "../crypto.mjs";
 import { loadConfig, saveConfig } from "../store.mjs";
 
-function mapPublicKeys(keys) {
-  if (!Array.isArray(keys)) return [];
-  return keys.map((k) => {
-    if (typeof k === "string") {
-      return {
-        id: `key_${maskKey(k)}`,
-        preview: maskKey(k),
-        active: true
-      };
-    }
-    return {
-      id: k.id,
-      preview: k.preview || maskKey(k.key),
-      active: k.active !== false,
-      createdAt: k.createdAt || null
-    };
-  });
-}
+import { normalizeProviderKeys } from "../store.mjs";
 
 export function publicConfig(config) {
-  const getKeys = (provider) => config[provider]?.keys || [];
+  const formatKeys = (provider) => {
+    const norm = normalizeProviderKeys(provider, config[provider]?.keys || []);
+    return {
+      keyCount: norm.length,
+      keys: norm.map(k => k.preview),
+      keyItems: norm.map(k => ({
+        id: k.id,
+        preview: k.preview,
+        active: k.active !== false,
+        createdAt: k.createdAt || null
+      }))
+    };
+  };
+
+  const groqData = formatKeys("groq");
+  const geminiData = formatKeys("gemini");
+  const mistralData = formatKeys("mistral");
+  const nvidiaData = formatKeys("nvidia");
+  const xkiroData = formatKeys("xkiro");
+
   return {
     updatedAt: config.updatedAt,
     providerOrder: config.providerOrder,
-    groq: {
-      model: config.groq.model,
-      keyCount: getKeys("groq").length,
-      keys: getKeys("groq").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
-      keyItems: mapPublicKeys(getKeys("groq"))
-    },
-    gemini: {
-      model: config.gemini.model,
-      keyCount: getKeys("gemini").length,
-      keys: getKeys("gemini").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
-      keyItems: mapPublicKeys(getKeys("gemini"))
-    },
-    mistral: {
-      model: config.mistral?.model || "mistral-tiny",
-      keyCount: getKeys("mistral").length,
-      keys: getKeys("mistral").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
-      keyItems: mapPublicKeys(getKeys("mistral"))
-    },
-    nvidia: {
-      model: config.nvidia?.model || "mistralai/mistral-large-3-675b-instruct-2512",
-      keyCount: getKeys("nvidia").length,
-      keys: getKeys("nvidia").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
-      keyItems: mapPublicKeys(getKeys("nvidia"))
-    },
-    xkiro: {
-      model: config.xkiro?.model || "google/gemini-2.5-flash",
-      keyCount: getKeys("xkiro").length,
-      keys: getKeys("xkiro").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
-      keyItems: mapPublicKeys(getKeys("xkiro"))
-    },
+    groq: { model: config.groq?.model, ...groqData },
+    gemini: { model: config.gemini?.model, ...geminiData },
+    mistral: { model: config.mistral?.model || "mistral-tiny", ...mistralData },
+    nvidia: { model: config.nvidia?.model || "mistralai/mistral-large-3-675b-instruct-2512", ...nvidiaData },
+    xkiro: { model: config.xkiro?.model || "google/gemini-2.5-flash", ...xkiroData },
     extensionKeys: (config.extensionKeys || []).map((key) => ({
       id: key.id,
       label: key.label,

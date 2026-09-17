@@ -297,7 +297,10 @@ window.runDiagnosticTest = async (provider, keyId) => {
         // Refresh health immediately so status pills update after diagnostic
         await loadHealth();
         renderKeyStudio();
-    } catch (e) {}
+    } catch (err) {
+        console.error(`Diagnostic test error for ${provider}:`, err);
+        showToast(`✗ Error: ${err.message}`, 'error');
+    }
 };
 
 window.openEditKeyModal = (provider, keyId) => {

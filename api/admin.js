@@ -11,22 +11,24 @@ async function router(event, executionContext) {
   try {
     requireAdmin(event); // Single Admin Auth for all admin endpoints
 
-    const rawPath = (event.path || event.url || "").split("?")[0];
-    const route = event.queryStringParameters?.route || rawPath.replace(/^\/api\/admin\/?/, "");
+    const rawPath = (event.path || event.url || "").split("?")[0].toLowerCase();
+    const queryRoute = String(event.queryStringParameters?.route || "").toLowerCase();
 
-    if (route.includes("health")) {
+    const isMatch = (segment) => queryRoute.includes(segment) || rawPath.includes(`/${segment}`) || rawPath.endsWith(segment);
+
+    if (isMatch("health")) {
       return healthHandler(event, executionContext);
     }
-    if (route.includes("keys") || route.includes("test-keys")) {
+    if (isMatch("keys") || isMatch("test-keys")) {
       return keysHandler(event, executionContext);
     }
-    if (route.includes("extension-key")) {
+    if (isMatch("extension-key")) {
       return extensionKeyHandler(event, executionContext);
     }
-    if (route.includes("stats")) {
+    if (isMatch("stats")) {
       return statsHandler(event, executionContext);
     }
-    if (route.includes("auth")) {
+    if (isMatch("auth")) {
       return json(200, {
         ok: true,
         message: "Authenticated",
