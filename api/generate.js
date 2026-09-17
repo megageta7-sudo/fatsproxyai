@@ -1,10 +1,10 @@
 import { bearerToken, json, optionsResponse, readJson, vercelHandler } from "../src/http.mjs";
 import { sha256 } from "../src/crypto.mjs";
 import { validateExtensionToken } from "../src/auth.mjs";
-import { loadConfig, updateKeyLastUsed, trackUsage, recordLog } from "../src/store.mjs";
+import { loadConfig, updateKeyLastUsed, trackUsage } from "../src/store.mjs";
 import { generateWithRotation } from "../src/rotation.mjs";
 import { normalizeMetadata } from "../src/normalize.mjs";
-import redis, { KEYS } from "../src/redis.mjs";
+import { recordApiTelemetry, backgroundTask } from "../src/telemetry.mjs";
 
 const MAX_BASE64_LENGTH = Number(process.env.MAX_BASE64_LENGTH || 6_000_000);
 
@@ -28,11 +28,15 @@ function validateRequest(body) {
   }
 }
 
-async function handler(event) {
+async function handler(event, executionContext) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();
   if (event.httpMethod !== "POST") {
     return json(405, { ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } });
   }
+
+  const requestStart = Date.now();
+  const requestId = event.requestId;
+  const clientIp = event.headers?.["x-forwarded-for"] || "unknown";
 
   try {
     const token = bearerToken(event);
@@ -44,6 +48,18 @@ async function handler(event) {
       loadConfig()
     ]);
     if (!keyRecord) {
+      // Telemetry auth failure (non-blocking)
+      backgroundTask(recordApiTelemetry({
+        requestId,
+        endpoint: "/api/generate",
+        method: "POST",
+        statusCode: 401,
+        totalLatencyMs: Date.now() - requestStart,
+        clientIp,
+        errorCode: "UNAUTHORIZED",
+        errorMessage: "Invalid extension API key"
+      }), executionContext);
+
       return json(401, { ok: false, error: { code: "UNAUTHORIZED", message: "Invalid extension API key" } });
     }
     
@@ -55,7 +71,7 @@ async function handler(event) {
     
     validateRequest({ ...body, prompt });
 
-    const { output } = await generateWithRotation(config, { ...body, prompt });
+    const { output } = await generateWithRotation(config, { ...body, prompt, requestId });
 
     // Normalize AI output to structured metadata
     let finalResult;
@@ -66,20 +82,31 @@ async function handler(event) {
        throw new Error(`AI returned invalid format: ${err.message}`);
     }
 
-    // Non-blocking background writes (batched)
-    const tokenHash = sha256(token) || token;
-    Promise.all([
-      trackUsage(output.provider, output.model, "success"),
-      recordLog({
-        method: event.httpMethod, path: "/api/generate", status: 200,
-        host: event.headers?.host || "unknown",
-        provider: output.provider, model: output.model,
-        message: `Generated metadata for image`
-      }),
-      // Reduce updateKeyLastUsed frequency: only 10% of requests
-      Math.random() < 0.1 ? updateKeyLastUsed(tokenHash) : Promise.resolve()
-    ]).catch(() => {});
+    const totalLatencyMs = Date.now() - requestStart;
+    const userEmail = keyRecord.userEmail || keyRecord.email || null;
 
+    // Non-blocking background telemetry & stats writes (Zero synchronous hot-path delay)
+    const tokenHash = sha256(token) || token;
+    backgroundTask(Promise.allSettled([
+      recordApiTelemetry({
+        requestId,
+        endpoint: "/api/generate",
+        method: "POST",
+        statusCode: 200,
+        totalLatencyMs,
+        finalProvider: output.provider,
+        finalModel: output.model,
+        finalKeyId: output.keyId,
+        finalKeyPreview: output.keyPreview,
+        attempts: output.attempts || [],
+        clientIp,
+        userEmail
+      }),
+      trackUsage(output.provider, output.model, "success"),
+      Math.random() < 0.1 ? updateKeyLastUsed(tokenHash) : Promise.resolve()
+    ]), executionContext);
+
+    // Identical legacy response payload for 100% backward compatibility
     return json(200, {
       ok: true,
       provider: output.provider,
@@ -94,7 +121,6 @@ async function handler(event) {
     let lastProvider = "none";
     let lastModel = "none";
 
-    // Track & Record Error (Non-blocking)
     if (error.details && error.details.length > 0) {
       const last = error.details[error.details.length - 1];
       lastProvider = last.provider;
@@ -103,17 +129,22 @@ async function handler(event) {
     }
 
     const statusCode = error.statusCode || 500;
+    const totalLatencyMs = Date.now() - requestStart;
 
-    recordLog({
-      method: event.httpMethod,
-      path: "/api/generate",
-      status: statusCode,
-      host: event.headers?.host || "unknown",
-      provider: lastProvider,
-      model: lastModel,
-      message: error.message,
-      error: true
-    }).catch(() => {});
+    // Background telemetry write
+    backgroundTask(recordApiTelemetry({
+      requestId,
+      endpoint: "/api/generate",
+      method: "POST",
+      statusCode,
+      totalLatencyMs,
+      finalProvider: lastProvider,
+      finalModel: lastModel,
+      attempts: error.attempts || [],
+      clientIp,
+      errorCode: statusCode === 502 ? "NO_PROVIDER_AVAILABLE" : "GENERATE_ERROR",
+      errorMessage: error.message
+    }), executionContext);
 
     return json(statusCode, {
       ok: false,

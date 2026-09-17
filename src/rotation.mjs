@@ -1,7 +1,8 @@
-import { updateProviderCursor, trackUsage } from "./store.mjs";
+import { updateProviderCursor } from "./store.mjs";
 import { callGemini, callGroq, callMistral, callNvidia, callXKiro } from "./providers.mjs";
 import redis, { KEYS } from "./redis.mjs";
-import { sha256 } from "./crypto.mjs";
+import { sha256, maskKey } from "./crypto.mjs";
+import { recordKeyOperationalMetric, backgroundTask } from "./telemetry.mjs";
 
 const callers = {
   groq: callGroq,
@@ -40,27 +41,59 @@ function markKeyUnhealthyLocal(healthKey, durationSeconds) {
  */
 function getRetryStrategy(error) {
   if (error.isSafetyBlock) return "next_key";
+  if (error.errorCode === "MODEL_NOT_FOUND") return "skip_provider";
   const status = Number(error.statusCode || 0);
-  if (status === 401 || status === 403) return "skip_provider";
-  if (status === 0 || status === 408 || status === 409 || status === 429 || status >= 500) return "next_key";
+  if (status === 401 || status === 403 || error.errorCode === "AUTH_FAILED") return "skip_provider";
+  if (status === 0 || status === 408 || status === 409 || status === 429 || status >= 500 || error.isTimeout) return "next_key";
   return "abort";
 }
 
+function normalizeKeyItem(item, provider) {
+  if (typeof item === "string") {
+    const raw = item.trim();
+    const hash = sha256(raw);
+    return {
+      id: `${provider}_${hash.slice(0, 12)}`,
+      key: raw,
+      preview: maskKey(raw),
+      hash,
+      active: true
+    };
+  }
+  const raw = (item.key || item.raw || "").trim();
+  const hash = item.hash || (raw ? sha256(raw) : sha256(item.id || Math.random().toString()));
+  return {
+    id: item.id || `${provider}_${hash.slice(0, 12)}`,
+    key: raw,
+    preview: item.preview || maskKey(raw),
+    hash,
+    active: item.active !== false
+  };
+}
+
 export async function generateWithRotation(config, request) {
+  const isDiagnostic = Boolean(request.isDiagnostic);
   const providers = request.forceProvider 
     ? [request.forceProvider] 
     : (request.providerOrder || (Array.isArray(config.providerOrder) && config.providerOrder.length > 0
       ? config.providerOrder
       : ["groq", "gemini"]));
+  
   const errors = [];
+  const recordedAttempts = [];
 
   for (const provider of providers) {
     const providerConfig = config[provider];
     const caller = callers[provider];
     if (!providerConfig || !caller || !providerConfig.keys?.length) continue;
 
-    const attempts = providerConfig.keys.length;
-    const keys = providerConfig.keys;
+    const normalizedKeys = providerConfig.keys
+      .map(k => normalizeKeyItem(k, provider))
+      .filter(k => k.active && k.key);
+
+    if (normalizedKeys.length === 0) continue;
+
+    const attemptsCount = normalizedKeys.length;
 
     // Use Redis for atomic cursor if available
     let currentIndex = Number(providerConfig.cursor || 0);
@@ -68,20 +101,17 @@ export async function generateWithRotation(config, request) {
     if (redis) {
       try {
         redisCursor = await redis.incr(KEYS.cursor(provider));
-        currentIndex = redisCursor % keys.length;
+        currentIndex = redisCursor % normalizedKeys.length;
       } catch (e) {
         console.warn("[Proxy] Redis cursor failed, fallback to memory:", e.message);
       }
     }
 
-    // Batch prefetch health status for all keys at once (reduces N round-trips to 1)
+    // Batch prefetch health status for all keys at once
     const healthStatuses = {};
     if (redis) {
       try {
-        const healthKeys = keys.map((_, i) => {
-          const idx = (currentIndex + i) % keys.length;
-          return KEYS.health(provider, sha256(keys[idx]));
-        });
+        const healthKeys = normalizedKeys.map(k => `health:${provider}:${k.id}`);
         const results = await Promise.all(healthKeys.map(k => redis.get(k)));
         healthKeys.forEach((k, i) => { healthStatuses[k] = results[i]; });
       } catch (e) {
@@ -89,42 +119,45 @@ export async function generateWithRotation(config, request) {
       }
     }
 
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const index = (currentIndex + attempt) % keys.length;
-      const key = keys[index];
-      
-      const keyHash = sha256(key);
-      const activeKey = KEYS.activeCount(provider, keyHash);
-      const healthKey = KEYS.health(provider, keyHash);
+    for (let attempt = 0; attempt < attemptsCount; attempt += 1) {
+      const index = (currentIndex + attempt) % normalizedKeys.length;
+      const keyObj = normalizedKeys[index];
+      const rawKey = keyObj.key;
+      const keyId = keyObj.id;
+      const keyHash = keyObj.hash;
+      const keyPreview = keyObj.preview;
+
+      const activeKey = `active:${provider}:${keyId}`;
+      const healthKey = `health:${provider}:${keyId}`;
 
       // 1. Check Health (use prefetched data or fallback)
       if (redis) {
         try {
           const isBanned = healthStatuses[healthKey] ?? await redis.get(healthKey);
-          if (isBanned) {
-            console.log(`[Proxy] Skipping unhealthy key for ${provider} (${keyHash.slice(0, 8)}): ${isBanned}`);
+          if (isBanned && !isDiagnostic) {
+            console.log(`[Proxy] Skipping unhealthy key for ${provider} (${keyId}): ${isBanned}`);
             continue;
           }
         } catch (redisErr) {
           console.warn(`[Proxy] Redis health check failed, using local fallback:`, redisErr.message);
-          if (!isKeyHealthyLocal(healthKey)) {
-            console.log(`[Proxy] Skipping unhealthy key (local) for ${provider} (${keyHash.slice(0, 8)})`);
+          if (!isKeyHealthyLocal(healthKey) && !isDiagnostic) {
+            console.log(`[Proxy] Skipping unhealthy key (local) for ${provider} (${keyId})`);
             continue;
           }
         }
-      } else if (!isKeyHealthyLocal(healthKey)) {
-        console.log(`[Proxy] Skipping unhealthy key (no-redis) for ${provider} (${keyHash.slice(0, 8)})`);
+      } else if (!isKeyHealthyLocal(healthKey) && !isDiagnostic) {
+        console.log(`[Proxy] Skipping unhealthy key (no-redis) for ${provider} (${keyId})`);
         continue;
       }
 
       // 2. Atomic Concurrency: INCR first, check after (prevents race condition)
-      if (redis) {
+      if (redis && !isDiagnostic) {
         try {
           const newCount = await redis.incr(activeKey);
           redis.expire(activeKey, 30).catch(() => {}); // Safety TTL for crash recovery
           if (newCount > MAX_CONCURRENT_PER_KEY) {
             await redis.decr(activeKey); // Rollback
-            console.log(`[Proxy] Key at capacity for ${provider} (${keyHash.slice(0, 8)}): ${newCount}/${MAX_CONCURRENT_PER_KEY}`);
+            console.log(`[Proxy] Key at capacity for ${provider} (${keyId}): ${newCount}/${MAX_CONCURRENT_PER_KEY}`);
             continue;
           }
         } catch (redisErr) {
@@ -132,17 +165,20 @@ export async function generateWithRotation(config, request) {
         }
       }
 
-      // Update local memory & Firestore (reduced frequency — cursor is in Redis)
-      const nextIdx = (index + 1) % keys.length;
+      // Update local memory & Firestore
+      const nextIdx = (index + 1) % normalizedKeys.length;
       providerConfig.cursor = nextIdx;
       if (!redis || redisCursor % 50 === 0) {
         updateProviderCursor(provider, nextIdx).catch(() => {});
       }
 
+      const attemptStart = Date.now();
+      const currentModel = request.forceModel || request.model || providerConfig.model;
+
       try {
         const output = await caller({
-          key,
-          model: request.forceModel || request.model || providerConfig.model,
+          key: rawKey,
+          model: currentModel,
           image: request.image,
           prompt: request.prompt,
           system: request.system,
@@ -150,44 +186,102 @@ export async function generateWithRotation(config, request) {
           history: request.history
         });
 
-        // Track success completion
-        if (redis) redis.decr(activeKey).catch(() => {});
+        const latencyMs = Date.now() - attemptStart;
+
+        // Release concurrency counter
+        if (redis && !isDiagnostic) redis.decr(activeKey).catch(() => {});
+
+        recordedAttempts.push({
+          provider,
+          model: currentModel,
+          keyId,
+          keyPreview,
+          keyHash,
+          statusCode: 200,
+          latencyMs,
+          isSuccess: true
+        });
+
+        // Record operational metric in background (non-blocking)
+        backgroundTask(recordKeyOperationalMetric({
+          provider,
+          keyId,
+          keyHash,
+          keyPreview,
+          statusCode: 200,
+          latencyMs,
+          isSuccess: true,
+          isDiagnostic
+        }));
 
         return {
           output: {
             provider,
             model: providerConfig.model,
+            keyId,
+            keyPreview,
+            attempts: recordedAttempts,
             ...output
           }
         };
       } catch (error) {
-        // Track failure completion
-        if (redis) redis.decr(activeKey).catch(() => {});
+        const latencyMs = Date.now() - attemptStart;
 
-        console.warn(`[Proxy] Provider ${provider} (${providerConfig.model}) failed: ${error.message} (Status: ${error.statusCode})`);
+        // Release concurrency counter
+        if (redis && !isDiagnostic) redis.decr(activeKey).catch(() => {});
+
+        const status = error.statusCode || null;
+        const errCode = error.errorCode || (error.isTimeout ? "UPSTREAM_TIMEOUT" : (status ? `HTTP_${status}` : "ERROR"));
+
+        recordedAttempts.push({
+          provider,
+          model: currentModel,
+          keyId,
+          keyPreview,
+          keyHash,
+          statusCode: status,
+          errorCode: errCode,
+          latencyMs,
+          errorMessage: error.message,
+          isSuccess: false
+        });
+
+        console.warn(`[Proxy] Provider ${provider} (${providerConfig.model}) failed: ${error.message} (Status: ${status})`);
         errors.push({
           provider,
           model: providerConfig.model,
+          keyId,
           message: error.message,
-          statusCode: error.statusCode || null
+          statusCode: status
         });
 
-        // 3. Reactive Circuit Breaker (expanded: 401/403 + 429 + 500+)
-        const status = error.statusCode;
-        if (status === 401 || status === 403) {
-          const banDuration = INVALID_KEY_BAN;
-          markKeyUnhealthyLocal(healthKey, banDuration);
-          if (redis) redis.set(healthKey, "invalid", { ex: banDuration }).catch(() => {});
-          console.warn(`[Proxy] Key ${keyHash.slice(0, 8)} marked INVALID for ${banDuration}s`);
-        } else if (status === 429 || status >= 500) {
-          markKeyUnhealthyLocal(healthKey, HEALTH_BAN_DURATION);
-          if (redis) redis.set(healthKey, "rate_limited", { ex: HEALTH_BAN_DURATION }).catch(() => {});
-          console.warn(`[Proxy] Key ${keyHash.slice(0, 8)} marked rate_limited for ${HEALTH_BAN_DURATION}s`);
+        // Record operational metric & circuit breaker in background
+        backgroundTask(recordKeyOperationalMetric({
+          provider,
+          keyId,
+          keyHash,
+          keyPreview,
+          statusCode: status,
+          errorCode: errCode,
+          latencyMs,
+          errorMessage: error.message,
+          isSuccess: false,
+          retryAfterSeconds: error.retryAfterSeconds,
+          isDiagnostic
+        }));
+
+        // Local circuit breaker fallback (skip if model error since key is healthy)
+        if (error.errorCode !== "MODEL_NOT_FOUND") {
+          if (status === 401 || status === 403 || error.errorCode === "AUTH_FAILED") {
+            markKeyUnhealthyLocal(healthKey, INVALID_KEY_BAN);
+          } else if (status === 429 || status >= 500) {
+            markKeyUnhealthyLocal(healthKey, error.retryAfterSeconds || HEALTH_BAN_DURATION);
+          }
         }
 
         const strategy = getRetryStrategy(error);
         if (strategy === "skip_provider") {
-          console.log(`[Proxy] Skipping provider ${provider} entirely (auth failure)`);
+          console.log(`[Proxy] Skipping provider ${provider} entirely (${error.errorCode || 'strategy: skip_provider'})`);
           break;
         }
         if (strategy === "abort") break;
@@ -199,5 +293,6 @@ export async function generateWithRotation(config, request) {
   const error = new Error("No provider key succeeded or all keys at capacity");
   error.statusCode = 502;
   error.details = errors;
+  error.attempts = recordedAttempts;
   throw error;
 }

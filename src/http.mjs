@@ -106,6 +106,8 @@ export function bearerToken(event) {
   return match ? match[1].trim() : "";
 }
 
+import crypto from "node:crypto";
+
 /**
  * Helper to adapt Netlify-style handler to Vercel Serverless Function
  */
@@ -120,14 +122,28 @@ export function vercelHandler(handler) {
       path: req.url
     };
 
+    const requestId = getHeader(event, "x-request-id") || `req_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    event.requestId = requestId;
+
+    const executionContext = {
+      waitUntil: (promise) => {
+        if (req.context && typeof req.context.waitUntil === "function") {
+          req.context.waitUntil(promise);
+        }
+      }
+    };
+    event.executionContext = executionContext;
+
     const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
     if (!checkRateLimit(ip)) {
+      res.setHeader("X-Request-Id", requestId);
       return res.status(429).json({ ok: false, error: "Too many requests" });
     }
 
-    const result = await handler(event);
+    const result = await handler(event, executionContext);
 
     // Apply headers
+    res.setHeader("X-Request-Id", requestId);
     if (result.headers) {
       for (const [key, value] of Object.entries(result.headers)) {
         res.setHeader(key, value);
@@ -137,4 +153,5 @@ export function vercelHandler(handler) {
     res.status(result.statusCode || 200).send(result.body);
   };
 }
+
 

@@ -1,5 +1,6 @@
-import { recordLog, loadConfig } from "../src/store.mjs";
+import { recordLog, loadConfig, getRawKey } from "../src/store.mjs";
 import { validateExtensionToken } from "../src/auth.mjs";
+import { recordApiTelemetry, backgroundTask } from "../src/telemetry.mjs";
 
 /**
  * Multi-function Mistral endpoint:
@@ -28,7 +29,8 @@ async function getMistralKey() {
   const keyList = config.mistral?.keys || [];
   if (keyList.length === 0) return null;
   // Simple random rotation
-  return keyList[Math.floor(Math.random() * keyList.length)];
+  const chosen = keyList[Math.floor(Math.random() * keyList.length)];
+  return getRawKey(chosen);
 }
 
 export default async function handler(req, res) {
@@ -142,16 +144,18 @@ async function handleAgentProxy(req, res, body) {
     // Forward the response status and body as-is (OpenAI-compatible)
     res.status(response.status).json(data);
 
-    // Log (non-blocking)
-    recordLog({
+    // Non-blocking telemetry
+    backgroundTask(recordApiTelemetry({
+      requestId: req.headers["x-request-id"] || `req_${Date.now()}`,
+      endpoint: "/api/mistral",
       method: "POST",
-      path: "/api/mistral",
-      status: response.status,
-      host: req.headers.host || "unknown",
-      provider: "mistral",
-      model: mistralModel,
-      message: response.ok ? "Agent proxy success" : `Agent proxy error: ${data?.error?.message || 'unknown'}`
-    }).catch(() => {});
+      statusCode: response.status,
+      totalLatencyMs: 0,
+      finalProvider: "mistral",
+      finalModel: mistralModel,
+      clientIp: req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown",
+      errorMessage: response.ok ? null : (data?.error?.message || "Mistral error")
+    }));
 
   } catch (error) {
     console.error('Mistral Agent Proxy Error:', error);
@@ -161,15 +165,17 @@ async function handleAgentProxy(req, res, body) {
         type: "server_error"
       }
     });
-    recordLog({
+    backgroundTask(recordApiTelemetry({
+      requestId: req.headers["x-request-id"] || `req_${Date.now()}`,
+      endpoint: "/api/mistral",
       method: "POST",
-      path: "/api/mistral",
-      status: 500,
-      host: req.headers?.host || "unknown",
-      provider: "mistral",
-      message: `Agent proxy error: ${error.message}`,
-      error: true
-    }).catch(() => {});
+      statusCode: 500,
+      totalLatencyMs: 0,
+      finalProvider: "mistral",
+      clientIp: req.headers?.["x-forwarded-for"] || "unknown",
+      errorCode: "SERVER_ERROR",
+      errorMessage: error.message
+    }));
   }
 }
 

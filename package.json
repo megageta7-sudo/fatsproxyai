@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "node dev-server.mjs",
+    "dev:vercel": "vercel dev",
     "build": "echo 'No build step needed'",
     "deploy": "vercel --prod"
   },

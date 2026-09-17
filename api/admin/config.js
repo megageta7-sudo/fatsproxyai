@@ -2,34 +2,59 @@ import { json, optionsResponse, readJson, requireAdmin, vercelHandler } from "..
 import { maskKey, normalizeKeyList } from "../../src/crypto.mjs";
 import { loadConfig, saveConfig } from "../../src/store.mjs";
 
+function mapPublicKeys(keys) {
+  if (!Array.isArray(keys)) return [];
+  return keys.map((k) => {
+    if (typeof k === "string") {
+      return {
+        id: `key_${maskKey(k)}`,
+        preview: maskKey(k),
+        active: true
+      };
+    }
+    return {
+      id: k.id,
+      preview: k.preview || maskKey(k.key),
+      active: k.active !== false,
+      createdAt: k.createdAt || null
+    };
+  });
+}
+
 export function publicConfig(config) {
+  const getKeys = (provider) => config[provider]?.keys || [];
   return {
     updatedAt: config.updatedAt,
     providerOrder: config.providerOrder,
     groq: {
       model: config.groq.model,
-      keyCount: config.groq.keys.length,
-      keys: config.groq.keys.map(maskKey)
+      keyCount: getKeys("groq").length,
+      keys: getKeys("groq").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
+      keyItems: mapPublicKeys(getKeys("groq"))
     },
     gemini: {
       model: config.gemini.model,
-      keyCount: config.gemini.keys.length,
-      keys: config.gemini.keys.map(maskKey)
+      keyCount: getKeys("gemini").length,
+      keys: getKeys("gemini").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
+      keyItems: mapPublicKeys(getKeys("gemini"))
     },
     mistral: {
       model: config.mistral?.model || "mistral-tiny",
-      keyCount: config.mistral?.keys?.length || 0,
-      keys: (config.mistral?.keys || []).map(maskKey)
+      keyCount: getKeys("mistral").length,
+      keys: getKeys("mistral").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
+      keyItems: mapPublicKeys(getKeys("mistral"))
     },
     nvidia: {
       model: config.nvidia?.model || "mistralai/mistral-large-3-675b-instruct-2512",
-      keyCount: config.nvidia?.keys?.length || 0,
-      keys: (config.nvidia?.keys || []).map(maskKey)
+      keyCount: getKeys("nvidia").length,
+      keys: getKeys("nvidia").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
+      keyItems: mapPublicKeys(getKeys("nvidia"))
     },
     xkiro: {
       model: config.xkiro?.model || "google/gemini-2.5-flash",
-      keyCount: config.xkiro?.keys?.length || 0,
-      keys: (config.xkiro?.keys || []).map(maskKey)
+      keyCount: getKeys("xkiro").length,
+      keys: getKeys("xkiro").map(k => typeof k === 'string' ? maskKey(k) : (k.preview || maskKey(k.key))),
+      keyItems: mapPublicKeys(getKeys("xkiro"))
     },
     extensionKeys: (config.extensionKeys || []).map((key) => ({
       id: key.id,
@@ -41,6 +66,7 @@ export function publicConfig(config) {
     }))
   };
 }
+
 
 async function handler(event) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();

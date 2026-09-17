@@ -3,214 +3,327 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Proxy Admin | Premium Dashboard</title>
+    <title>AI Proxy Command Center | Health & Telemetry</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/admin.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="dark-theme">
     <div class="glow-bg"></div>
-    
+
+    <!-- Navigation Header -->
     <nav class="glass-nav">
         <div class="logo">
-            <span class="pulse"></span>
-            <h1>AI PROXY <span>V2</span></h1>
+            <span class="pulse" id="system-pulse"></span>
+            <h1>AI PROXY <span>COMMAND CENTER</span></h1>
         </div>
-        <div class="nav-status">
-            <span id="status-dot" class="dot"></span>
-            <span id="status-text">Connecting...</span>
+        <div class="nav-actions">
+            <!-- Alert Center Notification Bell -->
+            <button id="alert-bell-btn" class="icon-btn" title="View Active Alerts">
+                <span class="bell-icon">🔔</span>
+                <span id="alert-badge" class="badge-count hidden">0</span>
+            </button>
+            <button id="refresh-btn" class="icon-btn" title="Refresh System Status">🔄</button>
+            <div class="nav-status">
+                <span id="status-dot" class="dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+            <button id="logout-btn" class="secondary-btn compact-btn hidden">Logout</button>
         </div>
     </nav>
 
+    <!-- Alert Notification Drawer -->
+    <div id="alert-drawer" class="alert-drawer hidden">
+        <div class="alert-drawer-header">
+            <h3>Active Operational Alerts</h3>
+            <button id="close-alert-drawer-btn" class="text-btn">Close ✕</button>
+        </div>
+        <div id="alert-drawer-list" class="alert-drawer-list">
+            <div class="alert-empty">No active alerts. All systems running smooth.</div>
+        </div>
+    </div>
+
     <main class="container">
+        <!-- Login Section -->
         <section id="login-section" class="glass-card fade-in">
             <h2>Admin Authorization</h2>
-            <p>Please enter your secure token to manage proxy configurations.</p>
+            <p>Enter your <code>ADMIN_TOKEN</code> to access the proxy command center.</p>
             <div class="input-group">
-                <input type="password" id="admin-token" placeholder="Enter ADMIN_TOKEN">
-                <button id="load-config-btn" class="primary-btn">Initialize Session</button>
+                <input type="password" id="admin-token" placeholder="Enter ADMIN_TOKEN" autofocus>
+                <button id="load-config-btn" class="primary-btn glow-btn">Authenticate</button>
             </div>
         </section>
 
+        <!-- Main Dashboard Content -->
         <div id="admin-content" class="hidden">
-            <div class="dashboard-grid">
-                <!-- Provider Keys -->
-                <div class="glass-card provider-card">
-                    <h3><img src="https://img.icons8.com/ios-filled/50/ffffff/key.png" width="20"/> Provider Keys</h3>
-                    <div class="tabs">
-                        <button class="tab-btn active" data-tab="groq">Groq</button>
-                        <button class="tab-btn" data-tab="gemini">Gemini</button>
-                        <button class="tab-btn" data-tab="mistral">Mistral</button>
-                        <button class="tab-btn" data-tab="nvidia">Nvidia</button>
-                        <button class="tab-btn" data-tab="xkiro">xKiro</button>
-                        <button class="tab-btn" data-tab="stats">Statistics</button>
-                    </div>
-                    <div class="tab-content" id="groq-tab">
-                        <div class="label-row">
-                            <label>Groq API Keys</label>
-                            <button id="test-groq-btn" class="text-btn">Test All Keys</button>
-                        </div>
-                        <div class="provider-key-list" id="groq-key-list"></div>
-                        <div class="key-add-row">
-                            <input type="password" id="groq-new-key" placeholder="Add Groq key">
-                            <button class="secondary-btn" type="button" data-add-provider="groq">Add Key</button>
-                        </div>
-                        <label>Model</label>
-                        <input type="text" id="groq-model">
-                    </div>
-                    <div class="tab-content hidden" id="gemini-tab">
-                        <div class="label-row">
-                            <label>Gemini API Keys</label>
-                            <button id="test-gemini-btn" class="text-btn">Test All Keys</button>
-                        </div>
-                        <div class="provider-key-list" id="gemini-key-list"></div>
-                        <div class="key-add-row">
-                            <input type="password" id="gemini-new-key" placeholder="Add Gemini key">
-                            <button class="secondary-btn" type="button" data-add-provider="gemini">Add Key</button>
-                        </div>
-                        <label>Model</label>
-                        <input type="text" id="gemini-model">
-                    </div>
-                    <div class="tab-content hidden" id="mistral-tab">
-                        <div class="label-row">
-                            <label>Mistral API Keys</label>
-                            <button id="test-mistral-btn" class="text-btn">Test All Keys</button>
-                        </div>
-                        <div class="provider-key-list" id="mistral-key-list"></div>
-                        <div class="key-add-row">
-                            <input type="password" id="mistral-new-key" placeholder="Add Mistral key">
-                            <button class="secondary-btn" type="button" data-add-provider="mistral">Add Key</button>
-                        </div>
-                        <label>Model</label>
-                        <input type="text" id="mistral-model">
-                    </div>
-                    <div class="tab-content hidden" id="nvidia-tab">
-                        <div class="label-row">
-                            <label>Nvidia API Keys</label>
-                            <button id="test-nvidia-btn" class="text-btn">Test All Keys</button>
-                        </div>
-                        <div class="provider-key-list" id="nvidia-key-list"></div>
-                        <div class="key-add-row">
-                            <input type="password" id="nvidia-new-key" placeholder="Add Nvidia key">
-                            <button class="secondary-btn" type="button" data-add-provider="nvidia">Add Key</button>
-                        </div>
-                        <label>Model</label>
-                        <input type="text" id="nvidia-model">
-                    </div>
-                    <div class="tab-content hidden" id="xkiro-tab">
-                        <div class="label-row">
-                            <label>xKiro API Keys</label>
-                            <button id="test-xkiro-btn" class="text-btn">Test All Keys</button>
-                        </div>
-                        <div class="provider-key-list" id="xkiro-key-list"></div>
-                        <div class="key-add-row">
-                            <input type="password" id="xkiro-new-key" placeholder="Add xKiro key">
-                            <button class="secondary-btn" type="button" data-add-provider="xkiro">Add Key</button>
-                        </div>
-                        <label>Model</label>
-                        <input type="text" id="xkiro-model">
-                    </div>
+            <!-- Navigation Tabs -->
+            <div class="main-tabs">
+                <button class="main-tab-btn active" data-tab="health">🩺 Provider Health</button>
+                <button class="main-tab-btn" data-tab="keys">🔑 Key Management</button>
+                <button class="main-tab-btn" data-tab="logs">📋 Telemetry Logs</button>
+                <button class="main-tab-btn" data-tab="extensions">🎫 Extension Access</button>
+                <button class="main-tab-btn" data-tab="stats">📊 Usage Analytics</button>
+            </div>
 
-                    <div class="tab-content hidden" id="stats-tab">
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <h3>Total Requests</h3>
-                                <div class="stat-value" id="stat-total">0</div>
-                            </div>
-                            <div class="stat-card">
-                                <h3>Success Rate</h3>
-                                <div class="stat-value" id="stat-rate">0%</div>
-                            </div>
-                            <div class="stat-card">
-                                <h3>Users (Last 24h)</h3>
-                                <div class="stat-value" id="stat-active-users">0</div>
-                            </div>
-                            <div class="stat-card" style="border-top: 2px solid #8b5cf6;">
-                                <h3>TP Active</h3>
-                                <div class="stat-value" id="stat-tp-active" style="color: #8b5cf6;">0</div>
-                                <div style="font-size: 12px; color: #94a3b8; margin-top: 5px;">Pro: <span id="stat-tp-pro">0</span> | Trial: <span id="stat-tp-trial">0</span></div>
-                            </div>
-                            <div class="stat-card" style="border-top: 2px solid #10b981;">
-                                <h3>SK Active</h3>
-                                <div class="stat-value" id="stat-sk-active" style="color: #10b981;">0</div>
-                                <div style="font-size: 12px; color: #94a3b8; margin-top: 5px;">Pro: <span id="stat-sk-pro">0</span> | Trial: <span id="stat-sk-trial">0</span></div>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-large">
-                            <div class="label-row">
-                                <label>Daily Usage Trends</label>
-                                <span class="text-dim" style="font-size: 0.8rem">Last 14 Days</span>
-                            </div>
-                            <div class="chart-container mt-small">
-                                <canvas id="usageChart" height="150"></canvas>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-large">
-                            <label>Model Performance</label>
-                            <div id="model-stats-list" class="stats-list mt-small">
-                                <!-- Model stats will be injected here -->
-                            </div>
-                        </div>
-
-                        <div class="mt-large">
-                            <label>Provider Usage</label>
-                            <div id="provider-stats-list" class="stats-list mt-small">
-                                <!-- Provider stats will be injected here -->
-                            </div>
-                        </div>
+            <!-- TAB 1: PROVIDER HEALTH & OPERATIONAL STATUS -->
+            <section id="tab-health" class="tab-panel active">
+                <div class="summary-grid">
+                    <div class="stat-card">
+                        <h4>Total Monitored Keys</h4>
+                        <div class="stat-value" id="health-total-keys">0</div>
                     </div>
-                    
-                    <div class="order-section">
-                        <label>Rotation Order (Drag to reorder)</label>
-                        <div class="sortable-list" id="provider-order">
-                            <div class="sort-item" data-id="groq" draggable="true">Groq</div>
-                            <div class="sort-item" data-id="gemini" draggable="true">Gemini</div>
-                            <div class="sort-item" data-id="mistral" draggable="true">Mistral</div>
-                            <div class="sort-item" data-id="nvidia" draggable="true">Nvidia</div>
-                            <div class="sort-item" data-id="xkiro" draggable="true">xKiro</div>
-                        </div>
+                    <div class="stat-card border-green">
+                        <h4>Healthy Keys</h4>
+                        <div class="stat-value text-green" id="health-healthy-keys">0</div>
                     </div>
-                    
-                    <button id="save-provider-btn" class="primary-btn glow-btn">Update Provider Config</button>
+                    <div class="stat-card border-yellow">
+                        <h4>In Cooldown (429)</h4>
+                        <div class="stat-value text-yellow" id="health-cooldown-keys">0</div>
+                    </div>
+                    <div class="stat-card border-red">
+                        <h4>Invalid Keys (401/403)</h4>
+                        <div class="stat-value text-red" id="health-invalid-keys">0</div>
+                    </div>
                 </div>
 
-                <!-- Extension Keys -->
-                <div class="glass-card extension-card">
-                    <h3><img src="https://img.icons8.com/ios-filled/50/ffffff/puzzle.png" width="20"/> Extension Access</h3>
-                    <p>Manage keys authorized to use this proxy.</p>
-                    
-                    <div class="extension-list" id="extension-list">
-                        <!-- Keys will be injected here -->
+                <div class="section-title-row mt-large">
+                    <h3>AI Provider Real-Time Grid</h3>
+                    <span class="text-dim">Auto-refreshes every 30 seconds</span>
+                </div>
+
+                <div class="provider-matrix" id="provider-matrix">
+                    <!-- Dynamic Provider Cards Injected by JS -->
+                </div>
+            </section>
+
+            <!-- TAB 2: KEY MANAGEMENT STUDIO -->
+            <section id="tab-keys" class="tab-panel hidden">
+                <div class="glass-card">
+                    <div class="key-studio-header">
+                        <div>
+                            <h3>Provider Keys & Rotation Settings</h3>
+                            <p class="text-dim">Manage individual keys with stable IDs. Raw keys are never exposed.</p>
+                        </div>
+                        <div class="key-studio-actions">
+                            <button id="add-key-modal-btn" class="primary-btn glow-btn">+ Add New Key</button>
+                        </div>
+                    </div>
+
+                    <!-- Sub-tabs per Provider -->
+                    <div class="sub-tabs mt-medium">
+                        <button class="sub-tab-btn active" data-provider="groq">Groq</button>
+                        <button class="sub-tab-btn" data-provider="gemini">Gemini</button>
+                        <button class="sub-tab-btn" data-provider="mistral">Mistral</button>
+                        <button class="sub-tab-btn" data-provider="nvidia">Nvidia</button>
+                        <button class="sub-tab-btn" data-provider="xkiro">xKiro</button>
+                    </div>
+
+                    <div class="provider-detail-panel mt-medium">
+                        <div class="provider-settings-row">
+                            <div class="model-input-group">
+                                <label>Model Identifier</label>
+                                <input type="text" id="current-provider-model" placeholder="Model name">
+                            </div>
+                            <button id="save-model-btn" class="secondary-btn">Save Model</button>
+                            <button id="test-all-provider-keys-btn" class="secondary-btn">Diagnostic Test All</button>
+                        </div>
+
+                        <div class="keys-table-container mt-medium">
+                            <table class="keys-table">
+                                <thead>
+                                    <tr>
+                                        <th>Preview</th>
+                                        <th>Stable Key ID</th>
+                                        <th>Health Status</th>
+                                        <th>Recent Latency</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="keys-table-body">
+                                    <!-- Dynamic Key Rows Injected by JS -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Provider Rotation Order -->
+                    <div class="order-section mt-large">
+                        <label>Fallback Priority Order (Drag to reorder)</label>
+                        <div class="sortable-list" id="provider-order">
+                            <div class="sort-item" data-id="groq" draggable="true">GROQ <span>⠿</span></div>
+                            <div class="sort-item" data-id="gemini" draggable="true">GEMINI <span>⠿</span></div>
+                            <div class="sort-item" data-id="mistral" draggable="true">MISTRAL <span>⠿</span></div>
+                            <div class="sort-item" data-id="nvidia" draggable="true">NVIDIA <span>⠿</span></div>
+                            <div class="sort-item" data-id="xkiro" draggable="true">XKIRO <span>⠿</span></div>
+                        </div>
+                        <button id="save-order-btn" class="secondary-btn mt-small">Save Rotation Order</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: TELEMETRY LOGS -->
+            <section id="tab-logs" class="tab-panel hidden">
+                <div class="glass-card">
+                    <div class="logs-header">
+                        <div>
+                            <h3>Unified Telemetry Logs</h3>
+                            <p class="text-dim">Real-time execution waterfall and attempt history from Supabase.</p>
+                        </div>
+                        <div class="logs-filters">
+                            <select id="log-provider-filter">
+                                <option value="">All Providers</option>
+                                <option value="groq">Groq</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="mistral">Mistral</option>
+                                <option value="nvidia">Nvidia</option>
+                                <option value="xkiro">xKiro</option>
+                            </select>
+                            <select id="log-status-filter">
+                                <option value="">All Statuses</option>
+                                <option value="success">2xx Success</option>
+                                <option value="error">4xx / 5xx Error</option>
+                            </select>
+                            <button id="reload-logs-btn" class="secondary-btn">Filter & Refresh</button>
+                        </div>
+                    </div>
+
+                    <div class="table-container mt-medium">
+                        <table class="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Request ID</th>
+                                    <th>Endpoint</th>
+                                    <th>Provider</th>
+                                    <th>Key ID</th>
+                                    <th>Status</th>
+                                    <th>Total Latency</th>
+                                    <th>Attempts</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body">
+                                <tr><td colspan="8" class="text-center">Loading logs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: EXTENSION ACCESS & LICENSES -->
+            <section id="tab-extensions" class="tab-panel hidden">
+                <div class="glass-card">
+                    <h3>Extension Tokens</h3>
+                    <p class="text-dim">Manage authorization tokens used by browser extensions.</p>
+
+                    <div class="extension-list mt-medium" id="extension-list">
+                        <!-- Keys injected here -->
                     </div>
 
                     <div class="input-group mt-large">
-                        <input type="text" id="new-ext-name" placeholder="Key Label (e.g. Chrome Ext)">
+                        <input type="text" id="new-ext-name" placeholder="Token Label (e.g. Chrome Extension)">
                         <input type="email" id="new-ext-email" placeholder="User Email (optional)">
-                        <button id="gen-ext-key-btn" class="secondary-btn">Generate New Token</button>
+                        <button id="gen-ext-key-btn" class="secondary-btn">Generate Token</button>
                     </div>
-                    
-                    <div id="new-key-display" class="hidden glass-alert">
+
+                    <div id="new-key-display" class="hidden glass-alert mt-medium">
                         <span>New Token (copy now):</span>
                         <code id="new-key-value"></code>
                     </div>
+                </div>
+            </section>
 
-                    <!-- Test Console -->
-                    <div id="test-console" class="hidden mt-large">
-                        <div class="label-row">
-                            <label>Endpoint Test Output</label>
-                            <button onclick="$('test-console').classList.add('hidden')" class="text-btn">Clear</button>
+            <!-- TAB 5: USAGE ANALYTICS -->
+            <section id="tab-stats" class="tab-panel hidden">
+                <div class="glass-card">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h4>Total Historical Requests</h4>
+                            <div class="stat-value" id="stat-total">0</div>
                         </div>
-                        <div class="console-box" id="console-output"></div>
+                        <div class="stat-card">
+                            <h4>Success Rate</h4>
+                            <div class="stat-value" id="stat-rate">0%</div>
+                        </div>
+                        <div class="stat-card">
+                            <h4>Active Users (24h)</h4>
+                            <div class="stat-value" id="stat-active-users">0</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-large">
+                        <h4>Daily Volume Trends</h4>
+                        <div class="chart-container mt-small">
+                            <canvas id="usageChart" height="150"></canvas>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
     </main>
 
+    <!-- Modal: Add New Key -->
+    <div id="add-key-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h3>Add API Key</h3>
+            <p class="text-dim">The raw key will be stored securely and masked immediately.</p>
+            <div class="form-group mt-medium">
+                <label>Provider</label>
+                <select id="modal-add-provider">
+                    <option value="groq">Groq</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="mistral">Mistral</option>
+                    <option value="nvidia">Nvidia</option>
+                    <option value="xkiro">xKiro</option>
+                </select>
+            </div>
+            <div class="form-group mt-small">
+                <label>Raw API Key</label>
+                <input type="password" id="modal-add-key-input" placeholder="Paste key here (e.g. gsk_...)">
+            </div>
+            <div class="modal-actions mt-medium">
+                <button id="modal-add-submit-btn" class="primary-btn glow-btn">Save Key</button>
+                <button id="modal-add-cancel-btn" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Key -->
+    <div id="edit-key-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <h3>Replace API Key</h3>
+            <p class="text-dim">Update the underlying raw key while preserving its stable ID.</p>
+            <div class="form-group mt-medium">
+                <label>Key ID</label>
+                <input type="text" id="modal-edit-key-id" disabled>
+            </div>
+            <div class="form-group mt-small">
+                <label>New Raw API Key</label>
+                <input type="password" id="modal-edit-key-input" placeholder="Paste replacement key">
+            </div>
+            <div class="modal-actions mt-medium">
+                <button id="modal-edit-submit-btn" class="primary-btn glow-btn">Update Key</button>
+                <button id="modal-edit-cancel-btn" class="secondary-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Attempts Waterfall Inspection -->
+    <div id="attempts-modal" class="modal-overlay hidden">
+        <div class="modal-card wide-modal">
+            <div class="modal-header-row">
+                <h3>Request Attempts Waterfall</h3>
+                <button id="close-attempts-modal-btn" class="text-btn">✕</button>
+            </div>
+            <p class="text-dim">Request ID: <code id="attempts-modal-req-id"></code></p>
+            <div class="attempts-list mt-medium" id="attempts-modal-list">
+                <!-- Injected by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
     <div id="toast-container"></div>
 
     <script src="js/admin.js"></script>

@@ -58,6 +58,18 @@
       "destination": "/api/admin/test-keys.js"
     },
     {
+      "source": "/api/admin/health",
+      "destination": "/api/admin/health.js"
+    },
+    {
+      "source": "/api/admin/keys",
+      "destination": "/api/admin/keys.js"
+    },
+    {
+      "source": "/tester",
+      "destination": "/public/tester.html"
+    },
+    {
       "source": "/api/admin/auth",
       "destination": "/api/admin/auth.js"
     },

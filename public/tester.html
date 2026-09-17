@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Localhost Interactive API Sandbox | AI Proxy V2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0c10;
+            --card: #1f2833;
+            --border: rgba(255, 255, 255, 0.1);
+            --cyan: #66fcf1;
+            --teal: #45a29e;
+            --text: #c5c6c7;
+            --white: #ffffff;
+            --green: #2ecc71;
+            --red: #e74c3c;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
+        code, pre { font-family: 'JetBrains Mono', monospace; }
+        body { background: var(--bg); color: var(--text); padding: 2rem; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem; }
+        h1 { color: var(--white); font-size: 1.6rem; }
+        h1 span { color: var(--cyan); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+        .card h2 { font-size: 1.15rem; color: var(--white); margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--teal); font-weight: 600; }
+        input, select, textarea { width: 100%; background: #0b0c10; border: 1px solid var(--border); color: var(--white); padding: 0.65rem; border-radius: 8px; font-size: 0.9rem; }
+        button { background: var(--teal); color: var(--white); border: none; padding: 0.65rem 1.25rem; border-radius: 8px; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+        button:hover { background: var(--cyan); color: #000; }
+        .btn-full { width: 100%; margin-top: 0.5rem; }
+        pre { background: #000; color: #a6e22e; padding: 1rem; border-radius: 8px; font-size: 0.82rem; overflow-x: auto; max-height: 400px; }
+        .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem; font-weight: 700; }
+        .status-200 { background: rgba(46, 204, 113, 0.2); color: var(--green); }
+        .status-err { background: rgba(231, 76, 60, 0.2); color: var(--red); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI PROXY <span>LOCALHOST SANDBOX</span></h1>
+            <div style="font-size: 0.85rem;">Interactive API Testing Suite</div>
+        </header>
+
+        <!-- Credentials Bar -->
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label>ADMIN_TOKEN (for /api/admin/* endpoints)</label>
+                    <input type="password" id="admin-token" value="rahasia123">
+                </div>
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label>Extension Token (Bearer token for /api/generate)</label>
+                    <input type="text" id="ext-token" placeholder="Paste sk_live_... or leave blank for default test">
+                </div>
+                <button id="save-tokens-btn">Save Tokens</button>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Left Panel: Test Actions -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <!-- Section 1: Health & Diagnostics -->
+                <div class="card">
+                    <h2>1. System Health & Operational Status</h2>
+                    <p style="font-size:0.85rem; margin-bottom: 1rem;">Queries <code>/api/admin/health</code> to inspect real-time Redis status and alerts.</p>
+                    <button id="btn-test-health" class="btn-full">Run Health Inspection</button>
+                </div>
+
+                <!-- Section 2: AI Generation API (/api/generate) -->
+                <div class="card">
+                    <h2>2. Generate AI Metadata (/api/generate)</h2>
+                    <div class="form-group">
+                        <label>Provider (Optional: leave 'auto' for rotation)</label>
+                        <select id="gen-provider">
+                            <option value="">Auto Rotation</option>
+                            <option value="groq">Groq</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="mistral">Mistral</option>
+                            <option value="nvidia">Nvidia</option>
+                            <option value="xkiro">xKiro</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Prompt</label>
+                        <input type="text" id="gen-prompt" value="Generate 15 microstock keywords for a golden sunset in Bali beach">
+                    </div>
+                    <button id="btn-test-generate" class="btn-full">Test /api/generate</button>
+                </div>
+
+                <!-- Section 3: Telemetry Logs (/api/logs) -->
+                <div class="card">
+                    <h2>3. Query Supabase Telemetry (/api/logs)</h2>
+                    <div class="form-group">
+                        <label>Filter Provider</label>
+                        <select id="log-filter-provider">
+                            <option value="">All</option>
+                            <option value="groq">Groq</option>
+                            <option value="gemini">Gemini</option>
+                            <option value="mistral">Mistral</option>
+                        </select>
+                    </div>
+                    <button id="btn-test-logs" class="btn-full">Fetch Telemetry Logs</button>
+                </div>
+
+                <!-- Section 4: Webhook Simulation -->
+                <div class="card">
+                    <h2>4. Webhook Lynkid Ping Simulation</h2>
+                    <button id="btn-test-webhook" class="btn-full">Simulate Webhook Ping</button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Output Console -->
+            <div class="card" style="display:flex; flex-direction:column;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+                    <h2>Response Output Console</h2>
+                    <span id="response-status"></span>
+                </div>
+                <pre id="output-console" style="flex:1;">Click any test button on the left to inspect endpoint response here...</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const consoleEl = $('output-console');
+        const statusEl = $('response-status');
+
+        function setOutput(status, data, headers = {}) {
+            const isOk = status >= 200 && status < 300;
+            statusEl.innerHTML = `<span class="status-badge ${isOk ? 'status-200' : 'status-err'}">${status}</span>`;
+            
+            const reqId = headers['x-request-id'] ? `X-Request-Id: ${headers['x-request-id']}\n\n` : '';
+            consoleEl.textContent = reqId + JSON.stringify(data, null, 2);
+        }
+
+        // 1. Health Inspection
+        $('btn-test-health').addEventListener('click', async () => {
+            consoleEl.textContent = 'Calling /api/admin/health...';
+            try {
+                const res = await fetch('/api/admin/health', {
+                    headers: { 'x-admin-token': $('admin-token').value }
+                });
+                const data = await res.json();
+                setOutput(res.status, data, { 'x-request-id': res.headers.get('x-request-id') });
+            } catch (e) {
+                setOutput(500, { error: e.message });
+            }
+        });
+
+        // 2. Generate API
+        $('btn-test-generate').addEventListener('click', async () => {
+            consoleEl.textContent = 'Calling /api/generate...';
+            const provider = $('gen-provider').value;
+            const prompt = $('gen-prompt').value;
+            const token = $('ext-token').value.trim() || 'sk_live_test_key_123';
+
+            const payload = { prompt, settings: { keywordCount: 15 } };
+            if (provider) payload.forceProvider = provider;
+
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                setOutput(res.status, data, { 'x-request-id': res.headers.get('x-request-id') });
+            } catch (e) {
+                setOutput(500, { error: e.message });
+            }
+        });
+
+        // 3. Telemetry Logs
+        $('btn-test-logs').addEventListener('click', async () => {
+            consoleEl.textContent = 'Calling /api/logs...';
+            const provider = $('log-filter-provider').value;
+            const url = provider ? `/api/logs?provider=${provider}&limit=10` : '/api/logs?limit=10';
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                setOutput(res.status, data, { 'x-request-id': res.headers.get('x-request-id') });
+            } catch (e) {
+                setOutput(500, { error: e.message });
+            }
+        });
+
+        // 4. Webhook Ping
+        $('btn-test-webhook').addEventListener('click', async () => {
+            consoleEl.textContent = 'Simulating Webhook Ping...';
+            try {
+                const res = await fetch('/api/webhook-lynkid', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event: 'ping' })
+                });
+                const data = await res.json();
+                setOutput(res.status, data);
+            } catch (e) {
+                setOutput(500, { error: e.message });
+            }
+        });
+
+        $('save-tokens-btn').addEventListener('click', () => {
+            localStorage.setItem('admin_token', $('admin-token').value);
+            localStorage.setItem('test_ext_token', $('ext-token').value);
+            alert('Tokens saved locally');
+        });
+
+        // Restore
+        if (localStorage.getItem('admin_token')) $('admin-token').value = localStorage.getItem('admin_token');
+        if (localStorage.getItem('test_ext_token')) $('ext-token').value = localStorage.getItem('test_ext_token');
+    </script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db, admin } from "./firebase.mjs";
-import { sha256 } from "./crypto.mjs";
+import { sha256, maskKey } from "./crypto.mjs";
 import redis from "./redis.mjs";
 
 const CONFIG_ID = process.env.CONFIG_ID || "";
@@ -20,6 +20,52 @@ let cachedConfig = null;
 let lastCacheUpdate = 0;
 const userConfigCache = new Map();
 
+export function getRawKey(item) {
+  if (!item) return "";
+  if (typeof item === "string") return item;
+  return item.key || "";
+}
+
+export function normalizeProviderKeys(provider, rawKeys) {
+  if (!Array.isArray(rawKeys)) return [];
+  const seen = new Set();
+  const list = [];
+  
+  for (const item of rawKeys) {
+    let raw = "";
+    let id = "";
+    let active = true;
+    let createdAt = new Date().toISOString();
+
+    if (typeof item === "string") {
+      raw = item.trim();
+    } else if (item && typeof item === "object") {
+      raw = (item.key || item.raw || "").trim();
+      id = item.id || "";
+      active = item.active !== false;
+      createdAt = item.createdAt || createdAt;
+    }
+
+    if (!raw) continue;
+    const hash = sha256(raw);
+    const stableId = id || `${provider}_${hash.slice(0, 12)}`;
+    
+    if (seen.has(stableId)) continue;
+    seen.add(stableId);
+
+    list.push({
+      id: stableId,
+      key: raw,
+      preview: maskKey(raw),
+      hash,
+      active,
+      createdAt
+    });
+  }
+
+  return list;
+}
+
 function parseEnvKeys(key) {
   const value = process.env[key];
   if (!value) return [];
@@ -32,27 +78,27 @@ const defaultConfig = {
   providerOrder: ["groq", "gemini", "mistral", "nvidia", "xkiro"],
   groq: {
     model: process.env.GROQ_MODEL || "qwen/qwen3.6-27b",
-    keys: parseEnvKeys("GROQ_KEYS"),
+    keys: normalizeProviderKeys("groq", parseEnvKeys("GROQ_KEYS")),
     cursor: 0
   },
   gemini: {
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    keys: parseEnvKeys("GEMINI_KEYS"),
+    keys: normalizeProviderKeys("gemini", parseEnvKeys("GEMINI_KEYS")),
     cursor: 0
   },
   mistral: {
     model: process.env.MISTRAL_MODEL || "pixtral-12b-2409",
-    keys: parseEnvKeys("MISTRAL_KEYS"),
+    keys: normalizeProviderKeys("mistral", parseEnvKeys("MISTRAL_KEYS")),
     cursor: 0
   },
   nvidia: {
     model: process.env.NVIDIA_MODEL || "mistralai/mistral-large-3-675b-instruct-2512",
-    keys: parseEnvKeys("NVIDIA_KEYS"),
+    keys: normalizeProviderKeys("nvidia", parseEnvKeys("NVIDIA_KEYS")),
     cursor: 0
   },
   xkiro: {
     model: process.env.XKIRO_MODEL || "mistralai/ministral-14b",
-    keys: parseEnvKeys("XKIRO_KEYS"),
+    keys: normalizeProviderKeys("xkiro", parseEnvKeys("XKIRO_KEYS")),
     cursor: 0
   },
   extensionKeys: parseEnvKeys("EXTENSION_KEYS").map(k => ({
@@ -62,6 +108,7 @@ const defaultConfig = {
     lastUsedAt: null
   }))
 };
+
 
 function shouldUseLocalStore() {
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) return false;
@@ -126,27 +173,27 @@ export async function loadConfig(force = false) {
     groq: {
       ...defaultConfig.groq,
       ...(config?.groq || {}),
-      keys: (config?.groq?.keys?.length ? config.groq.keys : defaultConfig.groq.keys)
+      keys: normalizeProviderKeys("groq", config?.groq?.keys?.length ? config.groq.keys : defaultConfig.groq.keys)
     },
     gemini: {
       ...defaultConfig.gemini,
       ...(config?.gemini || {}),
-      keys: (config?.gemini?.keys?.length ? config.gemini.keys : defaultConfig.gemini.keys)
+      keys: normalizeProviderKeys("gemini", config?.gemini?.keys?.length ? config.gemini.keys : defaultConfig.gemini.keys)
     },
     mistral: {
       ...defaultConfig.mistral,
       ...(config?.mistral || {}),
-      keys: (config?.mistral?.keys?.length ? config.mistral.keys : defaultConfig.mistral.keys)
+      keys: normalizeProviderKeys("mistral", config?.mistral?.keys?.length ? config.mistral.keys : defaultConfig.mistral.keys)
     },
     nvidia: {
       ...defaultConfig.nvidia,
       ...(config?.nvidia || {}),
-      keys: (config?.nvidia?.keys?.length ? config.nvidia.keys : defaultConfig.nvidia.keys)
+      keys: normalizeProviderKeys("nvidia", config?.nvidia?.keys?.length ? config.nvidia.keys : defaultConfig.nvidia.keys)
     },
     xkiro: {
       ...defaultConfig.xkiro,
       ...(config?.xkiro || {}),
-      keys: (config?.xkiro?.keys?.length ? config.xkiro.keys : defaultConfig.xkiro.keys)
+      keys: normalizeProviderKeys("xkiro", config?.xkiro?.keys?.length ? config.xkiro.keys : defaultConfig.xkiro.keys)
     },
     extensionKeys: (config?.extensionKeys?.length ? config.extensionKeys : defaultConfig.extensionKeys)
   };
@@ -173,15 +220,29 @@ export async function loadConfig(force = false) {
 export async function saveConfig(config) {
   const next = {
     ...config,
+    groq: {
+      ...(config.groq || {}),
+      keys: normalizeProviderKeys("groq", config.groq?.keys || [])
+    },
+    gemini: {
+      ...(config.gemini || {}),
+      keys: normalizeProviderKeys("gemini", config.gemini?.keys || [])
+    },
+    mistral: {
+      ...(config.mistral || {}),
+      keys: normalizeProviderKeys("mistral", config.mistral?.keys || [])
+    },
+    nvidia: {
+      ...(config.nvidia || {}),
+      keys: normalizeProviderKeys("nvidia", config.nvidia?.keys || [])
+    },
+    xkiro: {
+      ...(config.xkiro || {}),
+      keys: normalizeProviderKeys("xkiro", config.xkiro?.keys || [])
+    },
     updatedAt: new Date().toISOString()
   };
 
-  // Ensure AI keys are deduplicated before saving
-  if (next.groq?.keys) next.groq.keys = [...new Set(next.groq.keys)];
-  if (next.gemini?.keys) next.gemini.keys = [...new Set(next.gemini.keys)];
-  if (next.mistral?.keys) next.mistral.keys = [...new Set(next.mistral.keys)];
-  if (next.nvidia?.keys) next.nvidia.keys = [...new Set(next.nvidia.keys)];
-  if (next.xkiro?.keys) next.xkiro.keys = [...new Set(next.xkiro.keys)];
 
   if (shouldUseLocalStore()) {
     await writeLocalConfig(next);
@@ -273,21 +334,9 @@ export async function trackUsage(provider, model, status = "success") {
 }
 
 export async function recordLog(details) {
-  if (shouldUseLocalStore()) return;
-
-  try {
-    const logRef = db.collection(LOGS_COLLECTION).doc();
-    await logRef.set({
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      time: new Date().toISOString(),
-      ...details
-    });
-
-    // Keep logs lean - maybe delete old logs? 
-    // For now, just save.
-  } catch (err) {
-    console.error("Error recording log:", err.message);
-  }
+  // Discontinued writing new logs to Firestore per Reviewer Point 2.
+  // All new logs flow exclusively to Supabase via src/telemetry.mjs.
+  return;
 }
 
 export async function loadChatHistory(chatId, limit = 10) {

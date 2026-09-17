@@ -1,6 +1,68 @@
 
 const PROVIDER_TIMEOUT = Number(process.env.PROVIDER_TIMEOUT || 20000); // 20s default
 
+export function extractRetryAfter(response) {
+  if (!response?.headers) return null;
+  const header = response.headers.get ? response.headers.get("retry-after") : response.headers["retry-after"];
+  if (!header) return null;
+  const seconds = Number(header);
+  if (!isNaN(seconds) && seconds > 0) return seconds;
+  const dateParsed = Date.parse(header);
+  if (!isNaN(dateParsed)) {
+    return Math.max(1, Math.round((dateParsed - Date.now()) / 1000));
+  }
+  return null;
+}
+
+export function handleProviderError(response, payload, providerName) {
+  const rawMessage = payload?.error?.message || payload?.message || `Status ${response.status}`;
+  console.error(`[${providerName}] Error: ${rawMessage}`);
+  const error = new Error(`${providerName} provider error: ${response.status} - ${rawMessage}`);
+  error.statusCode = response.status;
+  
+  const status = Number(response.status || 0);
+  const msg = (typeof rawMessage === "string" ? rawMessage : "").toLowerCase();
+  const errCode = (payload?.error?.code || payload?.code || "").toString().toLowerCase();
+  const errType = (payload?.error?.type || payload?.type || "").toString().toLowerCase();
+
+  // 1. Check for Model Not Found / Invalid Model
+  if (
+    errCode === "model_not_found" ||
+    errType === "invalid_model" ||
+    msg.includes("model_not_found") ||
+    msg.includes("invalid model") ||
+    msg.includes("model not found") ||
+    (status === 404 && (msg.includes("model") || msg.includes("not found") || msg.includes("does not exist") || payload?.status === "NOT_FOUND")) ||
+    (status === 400 && msg.includes("model") && (msg.includes("not exist") || msg.includes("not found") || msg.includes("invalid") || msg.includes("not supported")))
+  ) {
+    error.errorCode = "MODEL_NOT_FOUND";
+  }
+  // 2. Check for Auth / Key Failure (401, 403, or Gemini 400 invalid/leaked key)
+  else if (
+    status === 401 ||
+    (status === 403 && (msg.includes("leaked") || msg.includes("api key") || msg.includes("permission") || msg.includes("unauthorized") || msg.includes("forbidden") || msg.includes("invalid"))) ||
+    (status === 400 && (msg.includes("api key not valid") || msg.includes("reported as leaked") || msg.includes("invalid api key") || msg.includes("api_key_invalid") || msg.includes("pass a valid api key")))
+  ) {
+    error.errorCode = "AUTH_FAILED";
+  }
+  // 3. Check for Rate Limit / Quota Exceeded
+  else if (
+    status === 429 ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota exceeded") ||
+    msg.includes("rate limit")
+  ) {
+    error.errorCode = "RATE_LIMITED";
+  }
+  // 4. Default to HTTP_{status}
+  else {
+    error.errorCode = `HTTP_${status}`;
+  }
+
+  error.retryAfterSeconds = extractRetryAfter(response);
+  return error;
+}
+
 async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -9,7 +71,9 @@ async function fetchWithTimeout(url, options, timeoutMs = PROVIDER_TIMEOUT) {
   } catch (err) {
     if (err.name === "AbortError") {
       const error = new Error(`Provider timeout after ${timeoutMs}ms`);
-      error.statusCode = 408;
+      error.statusCode = null; // Reviewer point 9: do not fake 408
+      error.errorCode = "UPSTREAM_TIMEOUT";
+      error.isTimeout = true;
       throw error;
     }
     throw err;
@@ -51,11 +115,7 @@ export async function callGroq({ key, model, image, prompt, system, temperature,
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const rawMessage = payload?.error?.message || `Status ${response.status}`;
-    console.error(`[Groq] Error: ${rawMessage}`);
-    const error = new Error(`Groq provider error: ${response.status}`);
-    error.statusCode = response.status;
-    throw error;
+    throw handleProviderError(response, payload, "Groq");
   }
 
   const text = payload?.choices?.[0]?.message?.content || "";
@@ -64,6 +124,7 @@ export async function callGroq({ key, model, image, prompt, system, temperature,
     usage: payload?.usage || null
   };
 }
+
 
 export async function callGemini({ key, model, image, prompt, system, temperature, history }) {
   const parts = [{ text: prompt }];
@@ -108,11 +169,7 @@ export async function callGemini({ key, model, image, prompt, system, temperatur
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const rawMessage = payload?.error?.message || `Status ${response.status}`;
-    console.error(`[Gemini] Error: ${rawMessage}`);
-    const error = new Error(`Gemini provider error: ${response.status}`);
-    error.statusCode = response.status;
-    throw error;
+    throw handleProviderError(response, payload, "Gemini");
   }
 
   const candidate = payload?.candidates?.[0];
@@ -182,11 +239,7 @@ export async function callMistral({ key, model, image, prompt, system, temperatu
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const rawMessage = payload?.error?.message || `Status ${response.status}`;
-    console.error(`[Mistral] Error: ${rawMessage}`);
-    const error = new Error(`Mistral provider error: ${response.status}`);
-    error.statusCode = response.status;
-    throw error;
+    throw handleProviderError(response, payload, "Mistral");
   }
 
   const text = payload?.choices?.[0]?.message?.content || "";
@@ -237,11 +290,7 @@ export async function callNvidia({ key, model, image, prompt, system, temperatur
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const rawMessage = payload?.error?.message || `Status ${response.status}`;
-    console.error(`[Nvidia] Error: ${rawMessage}`);
-    const error = new Error(`Nvidia provider error: ${response.status}`);
-    error.statusCode = response.status;
-    throw error;
+    throw handleProviderError(response, payload, "Nvidia");
   }
 
   const text = payload?.choices?.[0]?.message?.content || "";
@@ -290,11 +339,7 @@ export async function callXKiro({ key, model, image, prompt, system, temperature
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const rawMessage = payload?.error?.message || `Status ${response.status}`;
-    console.error(`[xKiro] Error: ${rawMessage}`);
-    const error = new Error(`xKiro provider error: ${response.status} - ${rawMessage}`);
-    error.statusCode = response.status;
-    throw error;
+    throw handleProviderError(response, payload, "xKiro");
   }
 
   const text = payload?.choices?.[0]?.message?.content || "";

@@ -1,9 +1,12 @@
 const $ = (id) => document.getElementById(id);
+
 const state = {
     token: localStorage.getItem('admin_token') || '',
     config: null,
-    activeTab: 'groq',
-    editingProviderKey: null
+    healthData: null,
+    activeMainTab: 'health',
+    activeKeyProvider: 'groq',
+    healthPollInterval: null
 };
 
 const providers = ['groq', 'gemini', 'mistral', 'nvidia', 'xkiro'];
@@ -13,11 +16,11 @@ function showToast(message, type = 'success') {
     toast.className = `toast ${type}`;
     toast.textContent = message;
     $('toast-container').appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+    setTimeout(() => toast.remove(), 3500);
 }
 
 function escapeHtml(value) {
-    return String(value)
+    return String(value || '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -38,36 +41,409 @@ async function api(path, method = 'GET', body = null) {
             body: body ? JSON.stringify(body) : null
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error?.message || 'Request failed');
+        if (!res.ok) throw new Error(data.error?.message || data.message || 'Request failed');
         return data;
     } catch (err) {
+        if (err.message && err.message.toLowerCase().includes('admin token')) {
+            logout();
+        }
         showToast(err.message, 'error');
         throw err;
     }
 }
 
-// Drag & Drop Logic
-const sortableList = $('provider-order');
-let dragItem = null;
+// ─── AUTHENTICATION & SESSION ───
+if (state.token) {
+    $('admin-token').value = state.token;
+    initializeSession();
+}
 
-sortableList.addEventListener('dragstart', (e) => {
-    dragItem = e.target.closest('.sort-item');
-    if (dragItem) dragItem.classList.add('dragging');
+$('load-config-btn').addEventListener('click', () => {
+    state.token = $('admin-token').value.trim();
+    if (!state.token) return showToast('Please enter ADMIN_TOKEN', 'error');
+    localStorage.setItem('admin_token', state.token);
+    initializeSession();
 });
 
-sortableList.addEventListener('dragend', (e) => {
-    e.target.classList.remove('dragging');
+$('logout-btn').addEventListener('click', logout);
+
+function logout() {
+    state.token = '';
+    localStorage.removeItem('admin_token');
+    if (state.healthPollInterval) clearInterval(state.healthPollInterval);
+    $('login-section').classList.remove('hidden');
+    $('admin-content').classList.add('hidden');
+    $('logout-btn').classList.add('hidden');
+    $('status-dot').className = 'dot';
+    $('status-text').textContent = 'Disconnected';
+}
+
+async function initializeSession() {
+    $('status-dot').className = 'dot';
+    $('status-text').textContent = 'Connecting...';
+
+    try {
+        const configData = await api('/api/admin/config');
+        state.config = configData.config;
+
+        $('login-section').classList.add('hidden');
+        $('admin-content').classList.remove('hidden');
+        $('logout-btn').classList.remove('hidden');
+        $('status-dot').className = 'dot success';
+        $('status-text').textContent = 'Connected';
+
+        // Initial Data Load
+        await loadHealth();
+        renderRotationOrder();
+
+        // Start 30s background polling for health & alerts
+        if (state.healthPollInterval) clearInterval(state.healthPollInterval);
+        state.healthPollInterval = setInterval(loadHealth, 30000);
+    } catch (err) {
+        $('status-dot').className = 'dot error';
+        $('status-text').textContent = 'Unauthorized';
+    }
+}
+
+// ─── TAB NAVIGATION ───
+document.querySelectorAll('.main-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.main-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+
+        btn.classList.add('active');
+        const tab = btn.dataset.tab;
+        state.activeMainTab = tab;
+
+        const panel = $(`tab-${tab}`);
+        if (panel) panel.classList.remove('hidden');
+
+        if (tab === 'health') loadHealth();
+        if (tab === 'keys') renderKeyStudio();
+        if (tab === 'logs') loadLogs();
+        if (tab === 'extensions') renderExtensions();
+        if (tab === 'stats') loadStats();
+    });
 });
 
-sortableList.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    const afterElement = getDragAfterElement(sortableList, e.clientY);
-    if (afterElement == null) {
-        sortableList.appendChild(dragItem);
+// ─── TAB 1: HEALTH MONITORING & ALERTS ───
+async function loadHealth() {
+    try {
+        const res = await api('/api/admin/health');
+        state.healthData = res;
+
+        // Render Summary
+        const s = res.summary;
+        $('health-total-keys').textContent = s.totalKeys;
+        $('health-healthy-keys').textContent = s.healthyKeys;
+        $('health-cooldown-keys').textContent = s.rateLimitedKeys;
+        $('health-invalid-keys').textContent = s.invalidKeys;
+
+        // Render Alerts
+        renderAlerts(res.alerts || []);
+
+        // Render Provider Matrix
+        renderProviderMatrix(res.providers);
+    } catch (e) {
+        console.warn('Failed to load health status:', e);
+    }
+}
+
+function renderAlerts(alerts) {
+    const badge = $('alert-badge');
+    const drawerList = $('alert-drawer-list');
+
+    if (alerts.length > 0) {
+        badge.textContent = alerts.length;
+        badge.classList.remove('hidden');
+
+        drawerList.innerHTML = '';
+        alerts.forEach(a => {
+            const item = document.createElement('div');
+            item.className = `alert-item ${a.type === 'INVALID_KEY' ? 'alert-error' : ''}`;
+            item.innerHTML = `
+                <h5>
+                    <span>${escapeHtml(a.provider.toUpperCase())} (${escapeHtml(a.keyPreview)})</span>
+                    <span class="mono">${new Date(a.timestamp).toLocaleTimeString()}</span>
+                </h5>
+                <p>${escapeHtml(a.message)}</p>
+            `;
+            drawerList.appendChild(item);
+        });
     } else {
-        sortableList.insertBefore(dragItem, afterElement);
+        badge.classList.add('hidden');
+        drawerList.innerHTML = `<div class="alert-empty">No active alerts. All systems running smooth.</div>`;
+    }
+}
+
+// Alert Drawer Toggle
+$('alert-bell-btn').addEventListener('click', () => {
+    $('alert-drawer').classList.toggle('hidden');
+});
+$('close-alert-drawer-btn').addEventListener('click', () => {
+    $('alert-drawer').classList.add('hidden');
+});
+$('refresh-btn').addEventListener('click', async () => {
+    showToast('Refreshing system status...');
+    await loadHealth();
+    if (state.activeMainTab === 'logs') loadLogs();
+});
+
+function renderProviderMatrix(provs) {
+    const matrix = $('provider-matrix');
+    matrix.innerHTML = '';
+
+    providers.forEach(p => {
+        const info = provs[p] || { name: p, model: 'unknown', status: 'no_keys', keyCount: 0, keys: [] };
+        const card = document.createElement('div');
+        card.className = 'provider-card fade-in';
+
+        const keysHtml = info.keys.map(k => `
+            <div class="mini-key-row">
+                <span class="mono">${escapeHtml(k.preview)}</span>
+                <span class="key-id-tag mono">${escapeHtml(k.id)}</span>
+                <span class="status-pill ${k.status}">${k.status === 'rate_limited' ? `Cooldown (${k.cooldownRemaining}s)` : k.status}</span>
+            </div>
+        `).join('') || '<div class="text-dim" style="font-size:0.82rem">No keys configured</div>';
+
+        card.innerHTML = `
+            <div class="provider-card-header">
+                <span class="provider-card-title">${escapeHtml(p)}</span>
+                <span class="status-pill ${info.status}">${info.status.replace('_', ' ')}</span>
+            </div>
+            <div class="provider-meta">
+                Model: <code>${escapeHtml(info.model)}</code> • Keys: <strong>${info.keyCount}</strong>
+            </div>
+            <div class="mini-key-list">
+                ${keysHtml}
+            </div>
+        `;
+        matrix.appendChild(card);
+    });
+}
+
+// ─── TAB 2: KEY MANAGEMENT STUDIO ───
+document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        state.activeKeyProvider = btn.dataset.provider;
+        renderKeyStudio();
+    });
+});
+
+async function renderKeyStudio() {
+    const p = state.activeKeyProvider;
+    const providerConfig = state.config?.[p] || { model: '', keys: [], keyItems: [] };
+    
+    $('current-provider-model').value = providerConfig.model || '';
+
+    // Fetch latest health status to display accurate pills
+    let keyHealthMap = {};
+    if (state.healthData?.providers?.[p]?.keys) {
+        state.healthData.providers[p].keys.forEach(k => {
+            keyHealthMap[k.id] = k;
+        });
+    }
+
+    const tbody = $('keys-table-body');
+    tbody.innerHTML = '';
+
+    const keys = providerConfig.keyItems || [];
+
+    if (keys.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dim" style="padding: 2rem;">No keys found for ${p.toUpperCase()}. Click "+ Add New Key" to create one.</td></tr>`;
+        return;
+    }
+
+    keys.forEach(k => {
+        const live = keyHealthMap[k.id] || { status: k.active ? 'healthy' : 'disabled', cooldownRemaining: 0, latencyMs: null };
+        const statusLabel = live.status === 'rate_limited' ? `Cooldown (${live.cooldownRemaining}s)` : live.status;
+        const latencyText = live.latencyMs ? `${live.latencyMs}ms` : '—';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><code class="mono">${escapeHtml(k.preview)}</code></td>
+            <td><span class="key-id-tag mono">${escapeHtml(k.id)}</span></td>
+            <td><span class="status-pill ${live.status}">${statusLabel}</span></td>
+            <td><span class="mono text-dim">${latencyText}</span></td>
+            <td>
+                <div style="display:flex; gap:0.4rem;">
+                    <button class="secondary-btn compact-btn" onclick="runDiagnosticTest('${p}', '${k.id}')">Test</button>
+                    <button class="secondary-btn compact-btn" onclick="openEditKeyModal('${p}', '${k.id}')">Edit</button>
+                    <button class="secondary-btn compact-btn" onclick="toggleKeyActive('${p}', '${k.id}', ${!k.active})">${k.active ? 'Disable' : 'Enable'}</button>
+                    <button class="secondary-btn compact-btn danger-btn" onclick="deleteKeyId('${p}', '${k.id}')">Delete</button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+// Key Actions
+window.runDiagnosticTest = async (provider, keyId) => {
+    showToast(`Testing ${provider} key...`);
+    try {
+        const res = await api('/api/admin/keys', 'POST', { action: 'test', provider, keyId });
+        if (res.ok) {
+            showToast(`✓ Valid (${res.latencyMs}ms)`, 'success');
+        } else if (res.status === 'model_error') {
+            showToast(`⚠ Model Error: ${res.message}`, 'warning');
+        } else if (res.status === 'rate_limited') {
+            showToast(`⏳ Rate Limited: ${res.message}`, 'warning');
+        } else {
+            showToast(`✗ Failed: ${res.message}`, 'error');
+        }
+        // Refresh health immediately so status pills update after diagnostic
+        await loadHealth();
+        renderKeyStudio();
+    } catch (e) {}
+};
+
+window.openEditKeyModal = (provider, keyId) => {
+    $('modal-edit-key-id').value = keyId;
+    $('modal-edit-key-id').dataset.provider = provider;
+    $('modal-edit-key-input').value = '';
+    $('edit-key-modal').classList.remove('hidden');
+};
+
+$('modal-edit-cancel-btn').addEventListener('click', () => {
+    $('edit-key-modal').classList.add('hidden');
+});
+
+$('modal-edit-submit-btn').addEventListener('click', async () => {
+    const keyId = $('modal-edit-key-id').value;
+    const provider = $('modal-edit-key-id').dataset.provider;
+    const newKey = $('modal-edit-key-input').value.trim();
+
+    if (!newKey) return showToast('Please enter new key value', 'error');
+
+    try {
+        const res = await api('/api/admin/keys', 'POST', { action: 'update', provider, keyId, key: newKey });
+        $('edit-key-modal').classList.add('hidden');
+        showToast('Key updated successfully');
+        
+        // Refresh local config keyItems
+        state.config[provider].keyItems = res.keys;
+        renderKeyStudio();
+        loadHealth();
+    } catch (e) {}
+});
+
+window.toggleKeyActive = async (provider, keyId, newActive) => {
+    try {
+        const res = await api('/api/admin/keys', 'POST', { action: 'toggle', provider, keyId, active: newActive });
+        showToast(res.message);
+        state.config[provider].keyItems = res.keys;
+        renderKeyStudio();
+        loadHealth();
+    } catch (e) {}
+};
+
+window.deleteKeyId = async (provider, keyId) => {
+    if (!confirm(`Are you sure you want to permanently delete key ${keyId}?`)) return;
+
+    try {
+        const res = await api('/api/admin/keys', 'POST', { action: 'delete', provider, keyId });
+        showToast('Key deleted successfully');
+        state.config[provider].keyItems = res.keys;
+        renderKeyStudio();
+        loadHealth();
+    } catch (e) {}
+};
+
+// Add Key Modal
+$('add-key-modal-btn').addEventListener('click', () => {
+    $('modal-add-provider').value = state.activeKeyProvider;
+    $('modal-add-key-input').value = '';
+    $('add-key-modal').classList.remove('hidden');
+});
+
+$('modal-add-cancel-btn').addEventListener('click', () => {
+    $('add-key-modal').classList.add('hidden');
+});
+
+$('modal-add-submit-btn').addEventListener('click', async () => {
+    const provider = $('modal-add-provider').value;
+    const rawKey = $('modal-add-key-input').value.trim();
+
+    if (!rawKey) return showToast('Please paste a key', 'error');
+
+    try {
+        const res = await api('/api/admin/keys', 'POST', { action: 'add', provider, key: rawKey });
+        $('add-key-modal').classList.add('hidden');
+        showToast(`Key added with ID ${res.keyId}`);
+        state.config[provider].keyItems = res.keys;
+        renderKeyStudio();
+        loadHealth();
+    } catch (e) {}
+});
+
+// Save Model setting
+$('save-model-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const newModel = $('current-provider-model').value.trim();
+    if (!newModel) return showToast('Model name cannot be empty', 'error');
+
+    state.config[p].model = newModel;
+    await api('/api/admin/config', 'POST', {
+        [p]: { model: newModel }
+    });
+    showToast(`${p.toUpperCase()} model updated to ${newModel}`);
+    loadHealth();
+});
+
+// Diagnostic Test All
+$('test-all-provider-keys-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    if (keys.length === 0) return showToast('No keys to test', 'error');
+
+    showToast(`Running diagnostic test on ${keys.length} keys...`);
+    for (const k of keys) {
+        await window.runDiagnosticTest(p, k.id);
     }
 });
+
+// Provider Order Drag & Drop
+function renderRotationOrder() {
+    const orderList = $('provider-order');
+    orderList.innerHTML = '';
+    (state.config?.providerOrder || providers).forEach(id => {
+        const item = document.createElement('div');
+        item.className = 'sort-item';
+        item.dataset.id = id;
+        item.draggable = true;
+        item.innerHTML = `${id.toUpperCase()} <span>⠿</span>`;
+        orderList.appendChild(item);
+    });
+    setupDragAndDrop();
+}
+
+function setupDragAndDrop() {
+    const sortableList = $('provider-order');
+    let dragItem = null;
+
+    sortableList.querySelectorAll('.sort-item').forEach(item => {
+        item.addEventListener('dragstart', (e) => {
+            dragItem = e.target.closest('.sort-item');
+            if (dragItem) dragItem.classList.add('dragging');
+        });
+        item.addEventListener('dragend', (e) => {
+            e.target.classList.remove('dragging');
+        });
+    });
+
+    sortableList.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const afterElement = getDragAfterElement(sortableList, e.clientY);
+        if (afterElement == null) {
+            sortableList.appendChild(dragItem);
+        } else {
+            sortableList.insertBefore(dragItem, afterElement);
+        }
+    });
+}
 
 function getDragAfterElement(container, y) {
     const draggableElements = [...container.querySelectorAll('.sort-item:not(.dragging)')];
@@ -82,425 +458,185 @@ function getDragAfterElement(container, y) {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
 }
 
-// Config Loader
-if (state.token) {
-    $('admin-token').value = state.token;
-    loadConfig();
-}
-
-$('load-config-btn').addEventListener('click', () => {
-    state.token = $('admin-token').value.trim();
-    localStorage.setItem('admin_token', state.token);
-    loadConfig();
+$('save-order-btn').addEventListener('click', async () => {
+    const newOrder = Array.from($('provider-order').children).map(el => el.dataset.id);
+    await api('/api/admin/config', 'POST', { providerOrder: newOrder });
+    state.config.providerOrder = newOrder;
+    showToast('Rotation order updated');
 });
 
-async function loadConfig() {
-    $('status-dot').className = 'dot';
-    $('status-text').textContent = 'Loading...';
-    
+// ─── TAB 3: TELEMETRY LOGS ───
+$('reload-logs-btn').addEventListener('click', loadLogs);
+
+async function loadLogs() {
+    const tbody = $('logs-table-body');
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-dim">Loading logs from Supabase...</td></tr>';
+
+    const provider = $('log-provider-filter').value;
+    const status = $('log-status-filter').value;
+
+    let query = `/api/logs?limit=50`;
+    if (provider) query += `&provider=${encodeURIComponent(provider)}`;
+    if (status) query += `&status=${encodeURIComponent(status)}`;
+
     try {
-        const data = await api('/api/admin/config');
-        state.config = data.config;
-        renderConfig();
-        renderKeys();
-        
-        $('login-section').classList.add('hidden');
-        $('admin-content').classList.remove('hidden');
-        $('status-dot').className = 'dot success';
-        $('status-text').textContent = 'Connected';
-    } catch (err) {
-        $('status-dot').className = 'dot error';
-        $('status-text').textContent = 'Unauthorized';
-    }
-}
+        const data = await api(query);
+        const logs = data.logs || [];
 
-function renderConfig() {
-    const c = state.config;
-    $('groq-model').value = c.groq.model;
-    $('gemini-model').value = c.gemini.model;
-    $('mistral-model').value = c.mistral?.model || 'mistral-tiny';
-    $('nvidia-model').value = c.nvidia?.model || 'mistralai/mistral-large-3-675b-instruct-2512';
-    $('xkiro-model').value = c.xkiro?.model || 'google/gemini-2.5-flash';
-    renderProviderKeyLists();
-    
-    // Render provider order
-    const orderList = $('provider-order');
-    orderList.innerHTML = '';
-    c.providerOrder.forEach(id => {
-        const item = document.createElement('div');
-        item.className = 'sort-item';
-        item.dataset.id = id;
-        item.draggable = true;
-        item.innerHTML = `${id.toUpperCase()} <span>⠿</span>`;
-        orderList.appendChild(item);
-    });
-}
-
-function providerKeys(provider) {
-    if (!state.config?.[provider]) return [];
-    if (!Array.isArray(state.config[provider].keys)) state.config[provider].keys = [];
-    return state.config[provider].keys;
-}
-
-function renderProviderKeyLists() {
-    providers.forEach(renderProviderKeyList);
-}
-
-function renderProviderKeyList(provider) {
-    const list = $(`${provider}-key-list`);
-    const keys = providerKeys(provider);
-    list.innerHTML = '';
-
-    if (keys.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'provider-key-empty';
-        empty.textContent = 'No keys configured';
-        list.appendChild(empty);
-        return;
-    }
-
-    keys.forEach((key, index) => {
-        const editing = state.editingProviderKey?.provider === provider && state.editingProviderKey?.index === index;
-        const item = document.createElement('div');
-        item.className = 'provider-key-item fade-in';
-
-        if (editing) {
-            item.innerHTML = `
-                <input class="provider-key-input" type="password" value="${key.includes('...') ? '' : escapeHtml(key)}" placeholder="Paste replacement key">
-                <div class="provider-key-actions">
-                    <button class="secondary-btn compact-btn" type="button" onclick="saveProviderKeyEdit('${provider}', ${index})">Save</button>
-                    <button class="secondary-btn compact-btn" type="button" onclick="cancelProviderKeyEdit()">Cancel</button>
-                </div>
-            `;
-        } else {
-            item.innerHTML = `
-                <code class="provider-key-mask">${escapeHtml(key)}</code>
-                <div class="provider-key-actions">
-                    <button class="secondary-btn compact-btn" type="button" onclick="editProviderKey('${provider}', ${index})">Edit</button>
-                    <button class="secondary-btn compact-btn danger-btn" type="button" onclick="deleteProviderKey('${provider}', ${index})">Delete</button>
-                </div>
-            `;
+        if (logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-dim" style="padding:2rem;">No telemetry logs found.</td></tr>';
+            return;
         }
 
-        list.appendChild(item);
-    });
+        tbody.innerHTML = '';
+        logs.forEach(l => {
+            const tr = document.createElement('tr');
+            tr.className = 'clickable-row';
+            tr.title = 'Click to view attempts waterfall';
+
+            const statusClass = l.status >= 200 && l.status < 300 ? 'text-green' : 'text-red';
+            const latencyText = l.latencyMs !== undefined ? `${l.latencyMs}ms` : '—';
+            const reqShort = (l.requestId || l.id || '').slice(0, 12);
+
+            tr.innerHTML = `
+                <td class="mono text-dim" style="font-size:0.8rem">${new Date(l.time).toLocaleTimeString()}</td>
+                <td><code class="mono" style="color:var(--accent-cyan)">${escapeHtml(reqShort)}</code></td>
+                <td>${escapeHtml(l.path || '/api/generate')}</td>
+                <td><strong style="text-transform:uppercase">${escapeHtml(l.provider || '—')}</strong></td>
+                <td><span class="key-id-tag mono">${escapeHtml(l.keyId || l.keyPreview || '—')}</span></td>
+                <td><span class="${statusClass} mono font-bold">${l.status}</span></td>
+                <td class="mono">${latencyText}</td>
+                <td><span class="status-pill operational mono">${l.attemptsCount || 1} att</span></td>
+            `;
+
+            tr.addEventListener('click', () => openAttemptsModal(l.requestId));
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center text-red">Failed to load logs: ${e.message}</td></tr>`;
+    }
 }
 
-function renderKeys() {
+async function openAttemptsModal(requestId) {
+    if (!requestId) return;
+
+    $('attempts-modal-req-id').textContent = requestId;
+    const list = $('attempts-modal-list');
+    list.innerHTML = '<div class="text-center text-dim">Loading attempt waterfall...</div>';
+    $('attempts-modal').classList.remove('hidden');
+
+    try {
+        const res = await api(`/api/logs?requestId=${encodeURIComponent(requestId)}`);
+        const attempts = res.attempts || [];
+
+        if (attempts.length === 0) {
+            list.innerHTML = '<div class="text-center text-dim">No detailed attempt rows found for this request.</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+        attempts.forEach(att => {
+            const card = document.createElement('div');
+            card.className = `attempt-card ${att.is_success ? 'attempt-success' : 'attempt-fail'}`;
+            card.innerHTML = `
+                <div>
+                    <div><strong>Attempt #${att.attempt_number}: ${escapeHtml(att.provider.toUpperCase())}</strong> <span class="text-dim">(${escapeHtml(att.model)})</span></div>
+                    <div class="text-dim" style="margin-top:0.25rem;">Key: <code class="mono">${escapeHtml(att.key_id || att.key_preview)}</code> • Latency: <span class="mono">${att.latency_ms}ms</span></div>
+                    ${att.error_message ? `<div class="text-red" style="font-size:0.8rem; margin-top:0.25rem;">${escapeHtml(att.error_message)}</div>` : ''}
+                </div>
+                <div>
+                    <span class="status-pill ${att.is_success ? 'operational' : 'degraded'} mono">${att.status_code || att.error_code || (att.is_success ? '200' : 'ERROR')}</span>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+    } catch (e) {
+        list.innerHTML = `<div class="text-red">Error fetching attempts: ${e.message}</div>`;
+    }
+}
+
+$('close-attempts-modal-btn').addEventListener('click', () => {
+    $('attempts-modal').classList.add('hidden');
+});
+
+// ─── TAB 4: EXTENSIONS ───
+function renderExtensions() {
     const list = $('extension-list');
     list.innerHTML = '';
-    state.config.extensionKeys.forEach(key => {
+    (state.config?.extensionKeys || []).forEach(key => {
         const item = document.createElement('div');
-        item.className = 'ext-item fade-in';
+        item.className = 'mini-key-row';
+        item.style.padding = '0.75rem 1rem';
         item.innerHTML = `
-            <div class="ext-info">
-                <h4>${key.label} ${key.email ? `<small style="color:var(--accent-secondary)">(${key.email})</small>` : ''}</h4>
-                <p>Created: ${new Date(key.createdAt).toLocaleDateString()}</p>
-                <p>Last Used: ${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}</p>
+            <div>
+                <strong>${escapeHtml(key.label)}</strong> ${key.email ? `<small class="text-dim">(${escapeHtml(key.email)})</small>` : ''}
+                <div class="text-dim mono" style="font-size:0.75rem">Last Used: ${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}</div>
             </div>
-            <div class="ext-actions">
-                <button class="secondary-btn" onclick="testEndpointPrompt()">Test</button>
-                <button class="secondary-btn" onclick="toggleKey('${key.id}', ${!key.active})">${key.active ? 'Disable' : 'Enable'}</button>
-                <button class="secondary-btn" style="color: var(--error)" onclick="deleteKey('${key.id}')">Delete</button>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+                <span class="status-pill ${key.active ? 'operational' : 'offline'}">${key.active ? 'Active' : 'Disabled'}</span>
+                <button class="secondary-btn compact-btn" onclick="toggleExtKey('${key.id}', ${!key.active})">${key.active ? 'Disable' : 'Enable'}</button>
+                <button class="secondary-btn compact-btn danger-btn" onclick="deleteExtKey('${key.id}')">Delete</button>
             </div>
         `;
         list.appendChild(item);
     });
 }
 
-$('save-provider-btn').addEventListener('click', async () => {
-    const body = {
-        groq: {
-            keys: providerKeys('groq'),
-            model: $('groq-model').value.trim()
-        },
-        gemini: {
-            keys: providerKeys('gemini'),
-            model: $('gemini-model').value.trim()
-        },
-        mistral: {
-            keys: providerKeys('mistral'),
-            model: $('mistral-model').value.trim()
-        },
-        nvidia: {
-            keys: providerKeys('nvidia'),
-            model: $('nvidia-model').value.trim()
-        },
-        xkiro: {
-            keys: providerKeys('xkiro'),
-            model: $('xkiro-model').value.trim()
-        },
-        providerOrder: Array.from($('provider-order').children).map(el => el.dataset.id)
-    };
-    
-    const data = await api('/api/admin/config', 'POST', body);
-    state.config = data.config;
-    showToast('Configuration updated successfully');
-    renderConfig();
-});
-
-window.addProviderKey = (provider) => {
-    const input = $(`${provider}-new-key`);
-    const value = input.value.trim();
-    if (!value) return showToast('Please paste a key first', 'error');
-
-    const keys = providerKeys(provider);
-    if (keys.includes(value)) return showToast('Key already exists', 'error');
-
-    keys.push(value);
-    input.value = '';
-    renderProviderKeyList(provider);
-    showToast(`${provider.toUpperCase()} key added. Click Update Provider Config to save.`);
-};
-
-window.editProviderKey = (provider, index) => {
-    state.editingProviderKey = { provider, index };
-    renderProviderKeyList(provider);
-};
-
-window.cancelProviderKeyEdit = () => {
-    const provider = state.editingProviderKey?.provider;
-    state.editingProviderKey = null;
-    if (provider) renderProviderKeyList(provider);
-};
-
-window.saveProviderKeyEdit = (provider, index) => {
-    const row = $(`${provider}-key-list`).children[index];
-    const input = row?.querySelector('.provider-key-input');
-    const value = input?.value.trim();
-
-    if (!value) return showToast('Paste the replacement key to edit this item', 'error');
-
-    const keys = providerKeys(provider);
-    keys[index] = value;
-    state.editingProviderKey = null;
-    renderProviderKeyList(provider);
-    showToast(`${provider.toUpperCase()} key updated. Click Update Provider Config to save.`);
-};
-
-window.deleteProviderKey = (provider, index) => {
-    if (!confirm(`Delete this ${provider.toUpperCase()} key?`)) return;
-    providerKeys(provider).splice(index, 1);
-    renderProviderKeyList(provider);
-    showToast(`${provider.toUpperCase()} key deleted. Click Update Provider Config to save.`);
-};
-
-document.querySelectorAll('[data-add-provider]').forEach(btn => {
-    btn.addEventListener('click', () => addProviderKey(btn.dataset.addProvider));
-});
-
 $('gen-ext-key-btn').addEventListener('click', async () => {
     const label = $('new-ext-name').value.trim();
     const email = $('new-ext-email').value.trim();
     if (!label) return showToast('Please enter a label', 'error');
-    
+
     const data = await api('/api/admin/extension-key', 'POST', { action: 'create', label, email });
     state.config.extensionKeys = data.keys;
-    
+
     $('new-key-value').textContent = data.token;
-    $('new-key-display').innerHTML = `
-        <span>New Token (copy now):</span>
-        <code id="new-key-value">${data.token}</code>
-        <button class="text-btn" style="margin-top:0.5rem" onclick="testEndpoint('${data.token}')">Test This Key Now</button>
-    `;
     $('new-key-display').classList.remove('hidden');
     $('new-ext-name').value = '';
     $('new-ext-email').value = '';
-    renderKeys();
-    showToast('New extension key generated');
+    renderExtensions();
+    showToast('New token generated');
 });
 
-window.toggleKey = async (id, active) => {
+window.toggleExtKey = async (id, active) => {
     const data = await api('/api/admin/extension-key', 'POST', { action: 'setActive', id, active });
     state.config.extensionKeys = data.keys;
-    renderKeys();
-    showToast(`Key ${active ? 'enabled' : 'disabled'}`);
+    renderExtensions();
 };
 
-window.deleteKey = async (id) => {
-    if (!confirm('Are you sure you want to delete this key?')) return;
+window.deleteExtKey = async (id) => {
+    if (!confirm('Delete this extension token?')) return;
     const data = await api('/api/admin/extension-key', 'POST', { action: 'delete', id });
     state.config.extensionKeys = data.keys;
-    renderKeys();
-    showToast('Key deleted');
+    renderExtensions();
 };
 
-// Test Keys Logic
-async function testProviderKeys(provider) {
-    const btn = $(`test-${provider}-btn`);
-    const model = $(`${provider}-model`).value;
-    const keys = providerKeys(provider).filter(k => k.trim());
-    
-    if (keys.length === 0) return showToast('No keys to test', 'error');
-    
-    btn.disabled = true;
-    btn.textContent = 'Testing...';
-    
-    try {
-        const data = await api('/api/admin/test-keys', 'POST', { provider, keys, model });
-        const results = data.results;
-        
-        const validKeys = results.filter(r => r.status === 'valid' || r.status === 'skipped').map(r => r.key);
-        const invalidCount = results.filter(r => r.status === 'invalid').length;
-        
-        if (invalidCount > 0) {
-            const remove = confirm(`Found ${invalidCount} invalid keys. Would you like to remove them?`);
-            if (remove) {
-                state.config[provider].keys = validKeys;
-                renderProviderKeyList(provider);
-                showToast(`Removed ${invalidCount} invalid keys. Click Update Provider Config to save.`);
-            } else {
-                showToast(`Test complete: ${invalidCount} keys failed`, 'error');
-            }
-        } else {
-            showToast('All keys are valid!');
-        }
-    } catch (err) {
-        showToast('Testing failed: ' + err.message, 'error');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Test All Keys';
-    }
-}
+// ─── TAB 5: STATS & CHARTS ───
+let usageChart = null;
 
-$('test-groq-btn').addEventListener('click', () => testProviderKeys('groq'));
-$('test-gemini-btn').addEventListener('click', () => testProviderKeys('gemini'));
-$('test-mistral-btn').addEventListener('click', () => testProviderKeys('mistral'));
-$('test-nvidia-btn').addEventListener('click', () => testProviderKeys('nvidia'));
-$('test-xkiro-btn').addEventListener('click', () => testProviderKeys('xkiro'));
-
-// Endpoint Testing Logic
-window.testEndpointPrompt = () => {
-    const token = prompt('Paste the extension token to test:');
-    if (token) testEndpoint(token);
-};
-
-window.testEndpoint = async (token) => {
-    const consoleEl = $('test-console');
-    const output = $('console-output');
-    
-    consoleEl.classList.remove('hidden');
-    output.innerHTML = `<span class="info">[${new Date().toLocaleTimeString()}] Starting cross-provider test...</span>\n`;
-    
-    const runTest = async (provider) => {
-        output.innerHTML += `<span class="info">Testing ${provider.toUpperCase()}...</span>\n`;
-        try {
-            const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    forceProvider: provider,
-                    prompt: `Test ${provider}. Reply with 'OK'.`
-                })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                output.innerHTML += `<span class="success">✓ ${provider.toUpperCase()} Success: ${data.result.substring(0, 50)}</span>\n`;
-            } else {
-                output.innerHTML += `<span class="err">✗ ${provider.toUpperCase()} Failed: ${data.error?.message || 'Unknown'}</span>\n`;
-            }
-        } catch (err) {
-            output.innerHTML += `<span class="err">✗ ${provider.toUpperCase()} Error: ${err.message}</span>\n`;
-        }
-        output.scrollTop = output.scrollHeight;
-    };
-
-    await runTest('groq');
-    await runTest('gemini');
-    await runTest('mistral');
-    await runTest('nvidia');
-    await runTest('xkiro');
-    output.innerHTML += `<span class="info">[${new Date().toLocaleTimeString()}] Tests complete.</span>\n`;
-};
-
-// Statistics Logic
 async function loadStats() {
     try {
         const data = await api('/api/admin/stats');
         const stats = data.stats;
-        
+
         const total = stats.total || 0;
         const success = stats.status?.success || 0;
-        const error = stats.status?.error || 0;
         const rate = total > 0 ? Math.round((success / total) * 100) : 0;
-        
+
         $('stat-total').textContent = total.toLocaleString();
         $('stat-rate').textContent = rate + '%';
         $('stat-active-users').textContent = data.users.onlineToday.toLocaleString();
-        
-        const tpStats = data.users.teepublic || { activePro: 0, activeTrial: 0 };
-        const skStats = data.users.smartkeyword || { activePro: 0, activeTrial: 0 };
 
-        $('stat-tp-active').textContent = (tpStats.activePro + tpStats.activeTrial).toLocaleString();
-        $('stat-tp-pro').textContent = tpStats.activePro.toLocaleString();
-        $('stat-tp-trial').textContent = tpStats.activeTrial.toLocaleString();
-        
-        $('stat-sk-active').textContent = (skStats.activePro + skStats.activeTrial).toLocaleString();
-        $('stat-sk-pro').textContent = skStats.activePro.toLocaleString();
-        $('stat-sk-trial').textContent = skStats.activeTrial.toLocaleString();
-        
-        // Render Chart
         renderUsageChart(stats.history || {});
-        
-        // Render Models
-        const modelList = $('model-stats-list');
-        modelList.innerHTML = '';
-        if (stats.models) {
-            Object.entries(stats.models).sort((a,b) => b[1].total - a[1].total).forEach(([name, data]) => {
-                const perc = total > 0 ? Math.round((data.total / total) * 100) : 0;
-                const item = document.createElement('div');
-                item.className = 'stats-item';
-                item.innerHTML = `
-                    <div class="stats-item-header">
-                        <span>${name.replace(/_/g, '.')}</span>
-                        <span>${data.total.toLocaleString()} (${perc}%)</span>
-                    </div>
-                    <div class="stats-bar-bg">
-                        <div class="stats-bar-fill" style="width: ${perc}%"></div>
-                    </div>
-                `;
-                modelList.appendChild(item);
-            });
-        }
-
-        // Render Providers
-        const provList = $('provider-stats-list');
-        provList.innerHTML = '';
-        if (stats.providers) {
-            Object.entries(stats.providers).sort((a,b) => b[1].total - a[1].total).forEach(([name, data]) => {
-                const perc = total > 0 ? Math.round((data.total / total) * 100) : 0;
-                const item = document.createElement('div');
-                item.className = 'stats-item';
-                item.innerHTML = `
-                    <div class="stats-item-header">
-                        <span style="text-transform: capitalize">${name}</span>
-                        <span>${data.total.toLocaleString()} (${perc}%)</span>
-                    </div>
-                    <div class="stats-bar-bg">
-                        <div class="stats-bar-fill" style="width: ${perc}%"></div>
-                    </div>
-                `;
-                provList.appendChild(item);
-            });
-        }
-    } catch (err) {
-        showToast('Failed to load statistics', 'error');
-    }
+    } catch (e) {}
 }
 
-let usageChart = null;
-
 function renderUsageChart(history) {
-    const ctx = document.getElementById('usageChart').getContext('2d');
-    
-    // Last 14 days labels
+    const ctx = $('usageChart').getContext('2d');
     const labels = [];
     const successData = [];
     const errorData = [];
-    
+
     for (let i = 13; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
@@ -515,54 +651,19 @@ function renderUsageChart(history) {
     usageChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels,
+            labels,
             datasets: [
-                {
-                    label: 'Success',
-                    data: successData,
-                    borderColor: '#00ff88',
-                    backgroundColor: 'rgba(0, 255, 136, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                },
-                {
-                    label: 'Errors',
-                    data: errorData,
-                    borderColor: '#ff4d4d',
-                    backgroundColor: 'rgba(255, 77, 77, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }
+                { label: 'Success', data: successData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.35 },
+                { label: 'Errors', data: errorData, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.35 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
-            },
             scales: {
-                y: { 
-                    beginAtZero: true,
-                    grid: { color: 'rgba(255,255,255,0.05)' },
-                    ticks: { color: '#888' }
-                },
-                x: { 
-                    grid: { display: false },
-                    ticks: { color: '#888' }
-                }
+                y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
             }
         }
     });
 }
-
-// Tabs
-document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-        btn.classList.add('active');
-        $(`${btn.dataset.tab}-tab`).classList.remove('hidden');
-        if (btn.dataset.tab === 'stats') loadStats();
-    });
-});
