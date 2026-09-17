@@ -130,14 +130,47 @@
                             <button id="test-all-provider-keys-btn" class="secondary-btn">Diagnostic Test All</button>
                         </div>
 
+                        <!-- Live Diagnostic Progress Bar -->
+                        <div id="diagnostic-progress-box" class="diagnostic-progress-box hidden">
+                            <div class="progress-bar-track">
+                                <div id="diagnostic-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+                            </div>
+                            <div class="progress-meta">
+                                <span id="diagnostic-progress-status" class="mono text-dim">Testing keys...</span>
+                                <button id="diagnostic-cancel-btn" class="text-btn">Cancel</button>
+                            </div>
+                        </div>
+
+                        <!-- Batch Action Toolbar -->
+                        <div class="batch-toolbar" id="batch-toolbar">
+                            <div class="batch-left">
+                                <label class="custom-checkbox-label">
+                                    <input type="checkbox" id="header-select-all-keys">
+                                    <span class="checkbox-text" id="batch-selected-text">Select All</span>
+                                </label>
+                                <span id="batch-selected-badge" class="batch-counter-badge hidden">0 selected</span>
+                            </div>
+                            <div class="batch-right">
+                                <button id="batch-test-btn" class="secondary-btn compact-btn" disabled>🩺 Test Selected</button>
+                                <button id="batch-enable-btn" class="secondary-btn compact-btn" disabled>✅ Enable</button>
+                                <button id="batch-disable-btn" class="secondary-btn compact-btn" disabled>🚫 Disable</button>
+                                <button id="batch-delete-btn" class="secondary-btn compact-btn danger-btn" disabled>🗑️ Delete Selected</button>
+                                <button id="clean-failed-keys-btn" class="secondary-btn compact-btn danger-btn hidden">🧹 Clean All Failed Keys (<span id="clean-failed-count">0</span>)</button>
+                            </div>
+                        </div>
+
                         <div class="keys-table-container mt-medium">
                             <table class="keys-table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 36px; text-align: center;">
+                                            <input type="checkbox" id="th-select-all" title="Select / Deselect All">
+                                        </th>
                                         <th>Preview</th>
                                         <th>Stable Key ID</th>
                                         <th>Health Status</th>
                                         <th>Recent Latency</th>
+                                        <th>Diagnostic Live Result</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>

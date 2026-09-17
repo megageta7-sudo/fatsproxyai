@@ -6,7 +6,11 @@ const state = {
     healthData: null,
     activeMainTab: 'health',
     activeKeyProvider: 'groq',
-    healthPollInterval: null
+    healthPollInterval: null,
+    selectedKeyIds: new Set(),
+    diagnosticResults: {},
+    isTesting: false,
+    cancelTesting: false
 };
 
 const providers = ['groq', 'gemini', 'mistral', 'nvidia', 'xkiro'];
@@ -228,9 +232,78 @@ document.querySelectorAll('.sub-tab-btn').forEach(btn => {
         document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         state.activeKeyProvider = btn.dataset.provider;
+        state.selectedKeyIds.clear();
         renderKeyStudio();
     });
 });
+
+function getDiagnosticBadgeHtml(kId) {
+    const diag = state.diagnosticResults[kId];
+    if (!diag) return `<span class="diag-badge untested" id="diag-badge-${kId}">—</span>`;
+
+    if (diag.status === 'testing') {
+        return `<span class="diag-badge testing" id="diag-badge-${kId}">Testing...</span>`;
+    }
+    if (diag.ok || diag.status === 'valid') {
+        return `<span class="diag-badge valid" id="diag-badge-${kId}">✓ Valid (${diag.latencyMs}ms)</span>`;
+    }
+    if (diag.status === 'model_error') {
+        return `<span class="diag-badge model_error" id="diag-badge-${kId}" title="${escapeHtml(diag.message)}">⚠ Model Error</span>`;
+    }
+    if (diag.status === 'rate_limited') {
+        return `<span class="diag-badge rate_limited" id="diag-badge-${kId}" title="${escapeHtml(diag.message)}">⏳ 429 Cooldown</span>`;
+    }
+    if (diag.status === 'invalid' || diag.statusCode === 401 || diag.statusCode === 403) {
+        return `<span class="diag-badge invalid" id="diag-badge-${kId}" title="${escapeHtml(diag.message)}">✗ Invalid Key</span>`;
+    }
+    return `<span class="diag-badge invalid" id="diag-badge-${kId}" title="${escapeHtml(diag.message || 'Error')}">✗ Failed</span>`;
+}
+
+function updateBatchToolbarState(keys) {
+    const totalKeys = keys.length;
+    const selectedCount = state.selectedKeyIds.size;
+    const allSelected = totalKeys > 0 && keys.every(k => state.selectedKeyIds.has(k.id));
+
+    // Checkboxes
+    const thCheck = $('th-select-all');
+    const headerCheck = $('header-select-all-keys');
+    if (thCheck) thCheck.checked = allSelected;
+    if (headerCheck) headerCheck.checked = allSelected;
+
+    // Badges & Labels
+    const badge = $('batch-selected-badge');
+    if (badge) {
+        badge.textContent = `${selectedCount} selected`;
+        badge.classList.toggle('hidden', selectedCount === 0);
+    }
+    const labelText = $('batch-selected-text');
+    if (labelText) {
+        labelText.textContent = allSelected ? 'Deselect All' : 'Select All';
+    }
+
+    // Action buttons disabled state
+    const hasSelection = selectedCount > 0;
+    $('batch-test-btn').disabled = !hasSelection;
+    $('batch-enable-btn').disabled = !hasSelection;
+    $('batch-disable-btn').disabled = !hasSelection;
+    $('batch-delete-btn').disabled = !hasSelection;
+
+    // Detect failed / revoked keys to offer 1-click cleanup
+    let failedCount = 0;
+    keys.forEach(k => {
+        const diag = state.diagnosticResults[k.id];
+        if (diag && (diag.status === 'invalid' || diag.errorCode === 'AUTH_FAILED' || diag.statusCode === 401 || diag.statusCode === 403)) {
+            failedCount++;
+        }
+    });
+
+    const cleanBtn = $('clean-failed-keys-btn');
+    const cleanCount = $('clean-failed-count');
+    if (cleanBtn && cleanCount) {
+        cleanCount.textContent = failedCount;
+        cleanBtn.classList.toggle('hidden', failedCount === 0);
+    }
+}
 
 async function renderKeyStudio() {
     const p = state.activeKeyProvider;
@@ -252,7 +325,8 @@ async function renderKeyStudio() {
     const keys = providerConfig.keyItems || [];
 
     if (keys.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-dim" style="padding: 2rem;">No keys found for ${p.toUpperCase()}. Click "+ Add New Key" to create one.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-dim" style="padding: 2.5rem;">No keys found for ${p.toUpperCase()}. Click "+ Add New Key" to create one.</td></tr>`;
+        updateBatchToolbarState([]);
         return;
     }
 
@@ -260,13 +334,19 @@ async function renderKeyStudio() {
         const live = keyHealthMap[k.id] || { status: k.active ? 'healthy' : 'disabled', cooldownRemaining: 0, latencyMs: null };
         const statusLabel = live.status === 'rate_limited' ? `Cooldown (${live.cooldownRemaining}s)` : live.status;
         const latencyText = live.latencyMs ? `${live.latencyMs}ms` : '—';
+        const isChecked = state.selectedKeyIds.has(k.id);
 
         const tr = document.createElement('tr');
+        tr.id = `key-row-${k.id}`;
         tr.innerHTML = `
+            <td style="text-align: center;">
+                <input type="checkbox" class="key-select-checkbox" data-id="${escapeHtml(k.id)}" ${isChecked ? 'checked' : ''} onchange="window.toggleKeySelection('${k.id}', this.checked)">
+            </td>
             <td><code class="mono">${escapeHtml(k.preview)}</code></td>
             <td><span class="key-id-tag mono">${escapeHtml(k.id)}</span></td>
             <td><span class="status-pill ${live.status}">${statusLabel}</span></td>
             <td><span class="mono text-dim">${latencyText}</span></td>
+            <td id="diag-cell-${k.id}">${getDiagnosticBadgeHtml(k.id)}</td>
             <td>
                 <div style="display:flex; gap:0.4rem;">
                     <button class="secondary-btn compact-btn" onclick="runDiagnosticTest('${p}', '${k.id}')">Test</button>
@@ -278,13 +358,249 @@ async function renderKeyStudio() {
         `;
         tbody.appendChild(tr);
     });
+
+    updateBatchToolbarState(keys);
 }
 
-// Key Actions
+// ─── SELECTION LOGIC ───
+window.toggleKeySelection = (keyId, isChecked) => {
+    if (isChecked) {
+        state.selectedKeyIds.add(keyId);
+    } else {
+        state.selectedKeyIds.delete(keyId);
+    }
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    updateBatchToolbarState(keys);
+};
+
+window.toggleSelectAll = (isChecked) => {
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    if (isChecked) {
+        keys.forEach(k => state.selectedKeyIds.add(k.id));
+    } else {
+        state.selectedKeyIds.clear();
+    }
+    // Update individual checkboxes
+    document.querySelectorAll('.key-select-checkbox').forEach(cb => {
+        cb.checked = isChecked;
+    });
+    updateBatchToolbarState(keys);
+};
+
+// Select all listeners
+$('header-select-all-keys').addEventListener('change', (e) => {
+    window.toggleSelectAll(e.target.checked);
+});
+$('th-select-all').addEventListener('change', (e) => {
+    window.toggleSelectAll(e.target.checked);
+});
+
+// ─── BATCH OPERATIONS ───
+
+// Batch Delete Selected
+$('batch-delete-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const selected = Array.from(state.selectedKeyIds);
+    if (selected.length === 0) return;
+
+    if (!confirm(`Are you sure you want to permanently delete ${selected.length} selected key(s) from ${p.toUpperCase()}?`)) return;
+
+    showToast(`Deleting ${selected.length} keys...`);
+    try {
+        const res = await api('/api/admin/keys', 'POST', {
+            action: 'batch_delete',
+            provider: p,
+            keyIds: selected
+        });
+        showToast(res.message || `${res.deletedCount} keys deleted`);
+        state.selectedKeyIds.clear();
+        state.config[p].keyItems = res.keys;
+        renderKeyStudio();
+        await loadHealth();
+    } catch (err) {
+        showToast(`Delete failed: ${err.message}`, 'error');
+    }
+});
+
+// Batch Enable Selected
+$('batch-enable-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const selected = Array.from(state.selectedKeyIds);
+    if (!selected.length) return;
+
+    try {
+        const res = await api('/api/admin/keys', 'POST', {
+            action: 'batch_toggle',
+            provider: p,
+            keyIds: selected,
+            active: true
+        });
+        showToast(res.message);
+        state.config[p].keyItems = res.keys;
+        renderKeyStudio();
+        await loadHealth();
+    } catch (err) {
+        showToast(`Enable failed: ${err.message}`, 'error');
+    }
+});
+
+// Batch Disable Selected
+$('batch-disable-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const selected = Array.from(state.selectedKeyIds);
+    if (!selected.length) return;
+
+    try {
+        const res = await api('/api/admin/keys', 'POST', {
+            action: 'batch_toggle',
+            provider: p,
+            keyIds: selected,
+            active: false
+        });
+        showToast(res.message);
+        state.config[p].keyItems = res.keys;
+        renderKeyStudio();
+        await loadHealth();
+    } catch (err) {
+        showToast(`Disable failed: ${err.message}`, 'error');
+    }
+});
+
+// Clean All Failed / Revoked Keys
+$('clean-failed-keys-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    const failedIds = keys.filter(k => {
+        const diag = state.diagnosticResults[k.id];
+        return diag && (diag.status === 'invalid' || diag.errorCode === 'AUTH_FAILED' || diag.statusCode === 401 || diag.statusCode === 403);
+    }).map(k => k.id);
+
+    if (!failedIds.length) return showToast('No failed keys detected', 'info');
+
+    if (!confirm(`Permanently delete all ${failedIds.length} failed/revoked keys in ${p.toUpperCase()}?`)) return;
+
+    showToast(`Cleaning up ${failedIds.length} failed keys...`);
+    try {
+        const res = await api('/api/admin/keys', 'POST', {
+            action: 'batch_delete',
+            provider: p,
+            keyIds: failedIds
+        });
+        showToast(`Cleaned ${res.deletedCount} failed keys`, 'success');
+        failedIds.forEach(id => {
+            state.selectedKeyIds.delete(id);
+            delete state.diagnosticResults[id];
+        });
+        state.config[p].keyItems = res.keys;
+        renderKeyStudio();
+        await loadHealth();
+    } catch (err) {
+        showToast(`Clean failed: ${err.message}`, 'error');
+    }
+});
+
+// ─── LIVE DIAGNOSTIC ENGINE ───
+window.runDiagnosticSequence = async (provider, targetKeyIds) => {
+    if (state.isTesting) return;
+    state.isTesting = true;
+    state.cancelTesting = false;
+
+    const progressBox = $('diagnostic-progress-box');
+    const progressBar = $('diagnostic-progress-bar');
+    const progressStatus = $('diagnostic-progress-status');
+
+    progressBox.classList.remove('hidden');
+    let completed = 0;
+    const total = targetKeyIds.length;
+
+    progressBar.style.width = '0%';
+    progressStatus.textContent = `Testing 0 of ${total} keys...`;
+
+    let invalidCount = 0;
+
+    for (const keyId of targetKeyIds) {
+        if (state.cancelTesting) {
+            showToast('Diagnostic testing canceled', 'info');
+            break;
+        }
+
+        // Mark row as currently testing
+        state.diagnosticResults[keyId] = { status: 'testing' };
+        const cell = $(`diag-cell-${keyId}`);
+        if (cell) cell.innerHTML = getDiagnosticBadgeHtml(keyId);
+
+        try {
+            const res = await api('/api/admin/keys', 'POST', { action: 'test', provider, keyId });
+            state.diagnosticResults[keyId] = res;
+            if (res.status === 'invalid' || res.statusCode === 401 || res.statusCode === 403) {
+                invalidCount++;
+            }
+        } catch (err) {
+            state.diagnosticResults[keyId] = { ok: false, status: 'invalid', message: err.message };
+            invalidCount++;
+        }
+
+        completed++;
+        progressBar.style.width = `${Math.round((completed / total) * 100)}%`;
+        progressStatus.textContent = `Tested ${completed} of ${total} keys (${Math.round((completed / total) * 100)}%)`;
+        
+        const updatedCell = $(`diag-cell-${keyId}`);
+        if (updatedCell) updatedCell.innerHTML = getDiagnosticBadgeHtml(keyId);
+    }
+
+    state.isTesting = false;
+    setTimeout(() => {
+        progressBox.classList.add('hidden');
+    }, 2000);
+
+    await loadHealth();
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    updateBatchToolbarState(keys);
+
+    if (invalidCount > 0) {
+        showToast(`Test finished: ${invalidCount} invalid keys detected. Use "Clean All Failed Keys" to remove them.`, 'warning');
+    } else {
+        showToast(`Test finished: All tested keys responsive!`, 'success');
+    }
+};
+
+$('diagnostic-cancel-btn').addEventListener('click', () => {
+    state.cancelTesting = true;
+});
+
+// Diagnostic Test All
+$('test-all-provider-keys-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const keys = state.config?.[p]?.keyItems || [];
+    if (keys.length === 0) return showToast('No keys to test', 'error');
+
+    showToast(`Running diagnostic test on all ${keys.length} ${p.toUpperCase()} keys...`);
+    await window.runDiagnosticSequence(p, keys.map(k => k.id));
+});
+
+// Batch Test Selected
+$('batch-test-btn').addEventListener('click', async () => {
+    const p = state.activeKeyProvider;
+    const selected = Array.from(state.selectedKeyIds);
+    if (selected.length === 0) return;
+
+    showToast(`Testing ${selected.length} selected keys...`);
+    await window.runDiagnosticSequence(p, selected);
+});
+
+// Single Key Diagnostic Test
 window.runDiagnosticTest = async (provider, keyId) => {
     showToast(`Testing ${provider} key...`);
+    state.diagnosticResults[keyId] = { status: 'testing' };
+    const cell = $(`diag-cell-${keyId}`);
+    if (cell) cell.innerHTML = getDiagnosticBadgeHtml(keyId);
+
     try {
         const res = await api('/api/admin/keys', 'POST', { action: 'test', provider, keyId });
+        state.diagnosticResults[keyId] = res;
         if (res.ok) {
             showToast(`✓ Valid (${res.latencyMs}ms)`, 'success');
         } else if (res.status === 'model_error') {
@@ -294,12 +610,14 @@ window.runDiagnosticTest = async (provider, keyId) => {
         } else {
             showToast(`✗ Failed: ${res.message}`, 'error');
         }
-        // Refresh health immediately so status pills update after diagnostic
         await loadHealth();
         renderKeyStudio();
     } catch (err) {
         console.error(`Diagnostic test error for ${provider}:`, err);
+        state.diagnosticResults[keyId] = { ok: false, status: 'invalid', message: err.message };
         showToast(`✗ Error: ${err.message}`, 'error');
+        const updatedCell = $(`diag-cell-${keyId}`);
+        if (updatedCell) updatedCell.innerHTML = getDiagnosticBadgeHtml(keyId);
     }
 };
 
@@ -326,7 +644,6 @@ $('modal-edit-submit-btn').addEventListener('click', async () => {
         $('edit-key-modal').classList.add('hidden');
         showToast('Key updated successfully');
         
-        // Refresh local config keyItems
         state.config[provider].keyItems = res.keys;
         renderKeyStudio();
         loadHealth();
@@ -349,6 +666,7 @@ window.deleteKeyId = async (provider, keyId) => {
     try {
         const res = await api('/api/admin/keys', 'POST', { action: 'delete', provider, keyId });
         showToast('Key deleted successfully');
+        state.selectedKeyIds.delete(keyId);
         state.config[provider].keyItems = res.keys;
         renderKeyStudio();
         loadHealth();
@@ -394,18 +712,6 @@ $('save-model-btn').addEventListener('click', async () => {
     });
     showToast(`${p.toUpperCase()} model updated to ${newModel}`);
     loadHealth();
-});
-
-// Diagnostic Test All
-$('test-all-provider-keys-btn').addEventListener('click', async () => {
-    const p = state.activeKeyProvider;
-    const keys = state.config?.[p]?.keyItems || [];
-    if (keys.length === 0) return showToast('No keys to test', 'error');
-
-    showToast(`Running diagnostic test on ${keys.length} keys...`);
-    for (const k of keys) {
-        await window.runDiagnosticTest(p, k.id);
-    }
 });
 
 // Provider Order Drag & Drop

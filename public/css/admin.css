@@ -611,3 +611,123 @@ input:focus, select:focus { border-color: var(--accent-cyan); }
 .toast.warning { border-left: 4px solid var(--warning); }
 .toast.error { border-left: 4px solid var(--error); }
 @keyframes slideIn { from { transform: translateX(50px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ─── Batch Action Toolbar & Multi-Select (Key Studio) ─── */
+.batch-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    padding: 0.65rem 1rem;
+    border-radius: 10px;
+    margin-top: 1rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.batch-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.custom-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    user-select: none;
+}
+.custom-checkbox-label input[type="checkbox"],
+.key-select-checkbox,
+#th-select-all {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-cyan);
+    cursor: pointer;
+}
+.batch-counter-badge {
+    background: rgba(0, 223, 216, 0.15);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(0, 223, 216, 0.3);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.batch-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Diagnostic Progress Bar */
+.diagnostic-progress-box {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    margin-top: 0.75rem;
+}
+.progress-bar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+}
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-secondary));
+    border-radius: 999px;
+    transition: width 0.25s ease;
+}
+.progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.4rem;
+    font-size: 0.82rem;
+}
+
+/* Diagnostic Badges in Table */
+.diag-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.diag-badge.untested {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+}
+.diag-badge.testing {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    animation: pulseGlow 1.5s infinite;
+}
+.diag-badge.valid {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.diag-badge.invalid {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.diag-badge.rate_limited, .diag-badge.model_error {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}

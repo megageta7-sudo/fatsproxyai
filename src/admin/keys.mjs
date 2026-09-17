@@ -15,7 +15,7 @@ const callers = {
 
 const defaultModels = {
   groq: "qwen/qwen3.8-27b",
-  gemini: "gemini-1.5-flash",
+  gemini: "gemini-2.5-flash",
   mistral: "mistral-small-latest",
   nvidia: "mistralai/mistral-large-3-675b-instruct-2512",
   xkiro: "mistralai/ministral-14b"
@@ -155,10 +155,89 @@ export async function handler(event) {
       });
     }
 
+    // ─── ACTION: BATCH DELETE KEYS ───
+    if (action === "batch_delete") {
+      const ids = Array.isArray(body.keyIds) ? body.keyIds : (keyId ? [keyId] : []);
+      if (!ids.length) {
+        return json(400, { ok: false, message: "keyIds array is required for batch delete" });
+      }
+
+      const idSet = new Set(ids.map(String));
+      const initialLength = keys.length;
+      keys = keys.filter(k => !idSet.has(k.id) && !idSet.has(k.preview) && !idSet.has(k.key) && !idSet.has(k.hash));
+      const deletedCount = initialLength - keys.length;
+
+      config[provider].keys = keys;
+      await saveConfig(config);
+
+      // Clean up Redis keys in parallel
+      if (redis) {
+        const redisOps = [];
+        for (const id of ids) {
+          redisOps.push(
+            redis.del(`health:${provider}:${id}`),
+            redis.del(`cooldown:${provider}:${id}`),
+            redis.del(`disabled:${provider}:${id}`),
+            redis.del(`errors_consecutive:${provider}:${id}`)
+          );
+        }
+        await Promise.all(redisOps).catch(() => {});
+      }
+
+      return json(200, {
+        ok: true,
+        deletedCount,
+        message: `${deletedCount} key(s) deleted successfully`,
+        keys: sanitizeKeysForResponse(keys)
+      });
+    }
+
+    // ─── ACTION: BATCH TOGGLE ACTIVE / DISABLED ───
+    if (action === "batch_toggle") {
+      const ids = Array.isArray(body.keyIds) ? body.keyIds : (keyId ? [keyId] : []);
+      if (!ids.length) {
+        return json(400, { ok: false, message: "keyIds array is required for batch toggle" });
+      }
+
+      const newActiveState = typeof active === "boolean" ? active : true;
+      const idSet = new Set(ids.map(String));
+      let updatedCount = 0;
+
+      for (const k of keys) {
+        if (idSet.has(k.id) || idSet.has(k.preview) || idSet.has(k.key) || idSet.has(k.hash)) {
+          k.active = newActiveState;
+          updatedCount++;
+        }
+      }
+
+      config[provider].keys = keys;
+      await saveConfig(config);
+
+      // Synchronize Redis disabled flag in parallel
+      if (redis) {
+        const redisOps = [];
+        for (const id of ids) {
+          if (!newActiveState) {
+            redisOps.push(redis.set(`disabled:${provider}:${id}`, "1"));
+          } else {
+            redisOps.push(redis.del(`disabled:${provider}:${id}`));
+          }
+        }
+        await Promise.all(redisOps).catch(() => {});
+      }
+
+      return json(200, {
+        ok: true,
+        updatedCount,
+        message: `${updatedCount} key(s) ${newActiveState ? "enabled" : "disabled"} successfully`,
+        keys: sanitizeKeysForResponse(keys)
+      });
+    }
+
     // ─── ACTION: TOGGLE ACTIVE / DISABLED ───
     if (action === "toggle") {
       if (!keyId) return json(400, { ok: false, message: "keyId is required" });
-      const target = keys.find(k => k.id === keyId || k.preview === keyId || k.key === keyId);
+      const target = keys.find(k => k.id === keyId || k.preview === keyId || k.key === keyId || k.hash === keyId);
       if (!target) return json(404, { ok: false, message: `Key '${keyId}' not found in ${provider}` });
 
       const newActiveState = typeof active === "boolean" ? active : !target.active;
