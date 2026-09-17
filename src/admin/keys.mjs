@@ -1,9 +1,9 @@
-import { json, optionsResponse, readJson, requireAdmin, vercelHandler } from "../../src/http.mjs";
-import { loadConfig, saveConfig, normalizeProviderKeys } from "../../src/store.mjs";
-import { sha256, maskKey } from "../../src/crypto.mjs";
-import { callGroq, callGemini, callMistral, callNvidia, callXKiro } from "../../src/providers.mjs";
-import { recordKeyOperationalMetric } from "../../src/telemetry.mjs";
-import redis from "../../src/redis.mjs";
+import { json, optionsResponse, readJson, requireAdmin } from "../http.mjs";
+import { loadConfig, saveConfig, normalizeProviderKeys } from "../store.mjs";
+import { sha256, maskKey } from "../crypto.mjs";
+import { callGroq, callGemini, callMistral, callNvidia, callXKiro } from "../providers.mjs";
+import { recordKeyOperationalMetric } from "../telemetry.mjs";
+import redis from "../redis.mjs";
 
 const callers = {
   groq: callGroq,
@@ -30,11 +30,11 @@ function sanitizeKeysForResponse(keys) {
   }));
 }
 
-async function handler(event) {
+export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();
 
   try {
-    requireAdmin(event); // Single Admin Auth (Reviewer Point 1)
+    requireAdmin(event);
 
     if (event.httpMethod !== "POST") {
       return json(405, { ok: false, error: { code: "METHOD_NOT_ALLOWED", message: "Use POST" } });
@@ -267,5 +267,3 @@ async function handler(event) {
     });
   }
 }
-
-export default vercelHandler(handler);

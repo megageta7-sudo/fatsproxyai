@@ -47,31 +47,35 @@
     },
     {
       "source": "/api/admin/config",
-      "destination": "/api/admin/config.js"
+      "destination": "/api/admin.js?route=config"
     },
     {
       "source": "/api/admin/extension-key",
-      "destination": "/api/admin/extension-key.js"
+      "destination": "/api/admin.js?route=extension-key"
     },
     {
       "source": "/api/admin/test-keys",
-      "destination": "/api/admin/test-keys.js"
+      "destination": "/api/admin.js?route=keys"
     },
     {
       "source": "/api/admin/health",
-      "destination": "/api/admin/health.js"
+      "destination": "/api/admin.js?route=health"
     },
     {
       "source": "/api/admin/keys",
-      "destination": "/api/admin/keys.js"
+      "destination": "/api/admin.js?route=keys"
     },
     {
-      "source": "/tester",
-      "destination": "/public/tester.html"
+      "source": "/api/admin/stats",
+      "destination": "/api/admin.js?route=stats"
     },
     {
       "source": "/api/admin/auth",
-      "destination": "/api/admin/auth.js"
+      "destination": "/api/admin.js?route=auth"
+    },
+    {
+      "source": "/api/admin/:route*",
+      "destination": "/api/admin.js?route=:route*"
     },
     {
       "source": "/admin",

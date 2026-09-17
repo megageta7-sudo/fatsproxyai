@@ -1,14 +1,14 @@
-import { json, optionsResponse, requireAdmin, vercelHandler } from "../../src/http.mjs";
-import { loadConfig } from "../../src/store.mjs";
-import { getKeyOperationalStatus, getActiveAlerts } from "../../src/telemetry.mjs";
+import { json, optionsResponse, requireAdmin } from "../http.mjs";
+import { loadConfig } from "../store.mjs";
+import { getKeyOperationalStatus, getActiveAlerts } from "../telemetry.mjs";
 
 const PROVIDERS = ["groq", "gemini", "mistral", "nvidia", "xkiro"];
 
-async function handler(event) {
+export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();
   
   try {
-    requireAdmin(event); // Single Admin Auth (Reviewer Point 1)
+    requireAdmin(event);
 
     const config = await loadConfig();
     const activeAlerts = await getActiveAlerts();
@@ -97,5 +97,3 @@ async function handler(event) {
     });
   }
 }
-
-export default vercelHandler(handler);

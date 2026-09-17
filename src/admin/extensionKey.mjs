@@ -1,6 +1,6 @@
-import { json, optionsResponse, readJson, requireAdmin, vercelHandler } from "../../src/http.mjs";
-import { randomToken, sha256 } from "../../src/crypto.mjs";
-import { loadConfig, saveConfig } from "../../src/store.mjs";
+import { json, optionsResponse, readJson, requireAdmin } from "../http.mjs";
+import { randomToken, sha256 } from "../crypto.mjs";
+import { loadConfig, saveConfig } from "../store.mjs";
 
 function publicKeys(config) {
   return (config.extensionKeys || []).map((key) => ({
@@ -12,7 +12,7 @@ function publicKeys(config) {
   }));
 }
 
-async function handler(event) {
+export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();
 
   try {
@@ -77,5 +77,3 @@ async function handler(event) {
     });
   }
 }
-
-export default vercelHandler(handler);

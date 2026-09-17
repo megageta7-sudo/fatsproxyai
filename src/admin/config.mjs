@@ -1,6 +1,6 @@
-import { json, optionsResponse, readJson, requireAdmin, vercelHandler } from "../../src/http.mjs";
-import { maskKey, normalizeKeyList } from "../../src/crypto.mjs";
-import { loadConfig, saveConfig } from "../../src/store.mjs";
+import { json, optionsResponse, readJson, requireAdmin } from "../http.mjs";
+import { maskKey, normalizeKeyList } from "../crypto.mjs";
+import { loadConfig, saveConfig } from "../store.mjs";
 
 function mapPublicKeys(keys) {
   if (!Array.isArray(keys)) return [];
@@ -67,8 +67,7 @@ export function publicConfig(config) {
   };
 }
 
-
-async function handler(event) {
+export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return optionsResponse();
 
   try {
@@ -95,7 +94,6 @@ async function handler(event) {
         }
         return key;
       });
-      // Deduplicate
       return [...new Set(restored)];
     };
 
@@ -148,5 +146,3 @@ async function handler(event) {
     });
   }
 }
-
-export default vercelHandler(handler);
